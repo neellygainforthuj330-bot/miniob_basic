@@ -12,7 +12,10 @@
 #include "sql/parser/yacc_sql.hpp"
 #include "sql/parser/lex_sql.h"
 #include "sql/expr/expression.h"
+#include "sql/parser/value.h"
 
+// 日期验证函数声明
+static bool check_date(int y, int m, int d);
 using namespace std;
 
 string token_name(const char *sql_string, YYLTYPE *llocp)
