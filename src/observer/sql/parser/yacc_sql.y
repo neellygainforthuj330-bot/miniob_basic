@@ -71,6 +71,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         LBRACE
         RBRACE
         COMMA
+        DATE_T
+        DATE_STR
         TRX_BEGIN
         TRX_COMMIT
         TRX_ROLLBACK
@@ -122,6 +124,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %token <floats> FLOAT
 %token <string> ID
 %token <string> SSS
+%token <string> DATE_STR
+%token DATE_T
 //非终结符
 
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
@@ -340,6 +344,7 @@ type:
     INT_T      { $$=INTS; }
     | STRING_T { $$=CHARS; }
     | FLOAT_T  { $$=FLOATS; }
+    | DATE_T   { $$=DATES; }
     ;
 insert_stmt:        /*insert   语句的语法解析树*/
     INSERT INTO ID VALUES LBRACE value value_list RBRACE 
@@ -385,6 +390,20 @@ value:
       $$ = new Value(tmp);
       free(tmp);
     }
+    |DATE_STR {
+        // 解析日期字符串 yyyy-mm-dd
+        int y, m, d;
+        sscanf($1, "%d-%d-%d", &y, &m, &d);
+        bool valid = check_date(y, m, d);
+        if (!valid) {
+          yyerror(&@$, sql_string, sql_result, scanner, "Invalid date value");
+          YYERROR;
+        }
+        int date_val = y * 10000 + m * 100 + d;
+        $$ = new Value();
+        $$->set_date(date_val);
+        free($1);
+      }
     ;
     
 delete_stmt:    /*  delete 语句的语法解析树*/

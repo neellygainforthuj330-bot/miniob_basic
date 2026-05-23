@@ -18,6 +18,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/lang/comparator.h"
 #include "common/lang/string.h"
+#include <cstring>
 
 const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "booleans"};
 
@@ -81,6 +82,16 @@ void Value::set_data(char *data, int length)
     } break;
   }
 }
+static bool check_date(int y, int m, int d)
+{
+  static int days_of_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (m < 1 || m > 12 || d < 1) return false;
+  bool leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+  if (m == 2 && leap) {
+    return d <= 29;
+  }
+  return d <= days_of_month[m];
+}
 void Value::set_int(int val)
 {
   attr_type_ = INTS;
@@ -93,6 +104,17 @@ void Value::set_float(float val)
   attr_type_ = FLOATS;
   num_value_.float_value_ = val;
   length_ = sizeof(val);
+}
+void Value::set_date(int val)
+{
+  attr_type_ = DATES;
+  num_value_.date_value_ = val;
+  length_ = sizeof(val);
+}
+
+int Value::get_date() const
+{
+  return num_value_.date_value_;
 }
 void Value::set_boolean(bool val)
 {
@@ -130,6 +152,9 @@ void Value::set_value(const Value &value)
     case UNDEFINED: {
       ASSERT(false, "got an invalid value type");
     } break;
+    case DATES: {
+  set_date(value.get_date());
+    } break;
   }
 }
 
@@ -160,6 +185,14 @@ std::string Value::to_string() const
     } break;
     case CHARS: {
       os << str_value_;
+    } break;
+    case DATES: {
+  char buf[16];
+   int y = num_value_.date_value_ / 10000;
+  int m = (num_value_.date_value_ % 10000) / 100;
+  int d = num_value_.date_value_ % 100;
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02d", y, m, d);
+  os << buf;
     } break;
     default: {
       LOG_WARN("unsupported attr type: %d", attr_type_);
@@ -247,6 +280,9 @@ float Value::get_float() const
     case FLOATS: {
       return num_value_.float_value_;
     } break;
+    case DATES: {
+   return float(num_value_.date_value_);
+    }  break;
     case BOOLEANS: {
       return float(num_value_.bool_value_);
     } break;
