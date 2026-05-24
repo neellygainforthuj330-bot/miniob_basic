@@ -125,7 +125,36 @@ RC Table::create(int32_t table_id,
   LOG_INFO("Successfully create table %s:%s", base_dir, name);
   return rc;
 }
+RC Table::destroy(const char *base_dir)
+{
+  RC rc = sync();
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
 
+  // 删除索引文件
+  for (Index *index : indexes_) {
+    std::string index_file = table_index_file(base_dir, name(), index->index_meta().name());
+    if (unlink(index_file.c_str()) != 0) {
+      LOG_WARN("Failed to delete index file: %s. error=%s", index_file.c_str(), strerror(errno));
+    }
+  }
+
+  // 删除数据文件
+  std::string data_file = table_data_file(base_dir, name());
+  if (unlink(data_file.c_str()) != 0) {
+    LOG_WARN("Failed to delete data file: %s. error=%s", data_file.c_str(), strerror(errno));
+  }
+
+  // 删除元数据文件
+  std::string meta_file = table_meta_file(base_dir, name());
+  if (unlink(meta_file.c_str()) != 0) {
+    LOG_WARN("Failed to delete meta file: %s. error=%s", meta_file.c_str(), strerror(errno));
+  }
+
+  LOG_INFO("Destroy table success. table name=%s", name());
+  return RC::SUCCESS;
+}
 RC Table::open(const char *meta_file, const char *base_dir)
 {
   // 加载元数据文件

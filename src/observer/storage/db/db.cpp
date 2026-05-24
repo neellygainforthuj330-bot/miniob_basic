@@ -100,6 +100,33 @@ RC Db::create_table(const char *table_name, int attribute_count, const AttrInfoS
   LOG_INFO("Create table success. table name=%s, table_id:%d", table_name, table_id);
   return RC::SUCCESS;
 }
+RC Db::drop_table(const char *table_name)
+{
+  // 检查表是否存在
+  auto iter = opened_tables_.find(table_name);
+  if (iter == opened_tables_.end()) {
+    LOG_WARN("Table not found: %s", table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  // 获取表对象
+  Table *table = iter->second;
+
+  // 从内存中删除表
+  opened_tables_.erase(iter);
+
+  // 删除表的文件
+  RC rc = table->destroy(path_.c_str());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to destroy table %s. rc=%s", table_name, strrc(rc));
+    delete table;
+    return rc;
+  }
+
+  delete table;
+  LOG_INFO("Drop table success. table name=%s", table_name);
+  return RC::SUCCESS;
+}
 
 Table *Db::find_table(const char *table_name) const
 {
