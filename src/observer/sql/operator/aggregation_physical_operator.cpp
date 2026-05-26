@@ -26,7 +26,7 @@ RC AggregationPhysicalOperator::next()
   if (returned_) return RC::RECORD_EOF;
   if (computed_) {
     returned_ = true;
-    return RC::SUCCESS;
+    return RC::RECORD_EOF;
   }
 
   if (children_.empty()) return RC::RECORD_EOF;
