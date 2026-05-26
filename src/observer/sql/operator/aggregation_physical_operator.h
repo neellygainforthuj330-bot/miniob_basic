@@ -48,7 +48,7 @@ public:
   AggregationPhysicalOperator() = default;
   virtual ~AggregationPhysicalOperator() = default;
 
-  PhysicalOperatorType type() const override { return PhysicalOperatorType::PROJECT; }
+  PhysicalOperatorType type() const override { return PhysicalOperatorType::AGGREGATION; }
 
   RC open(Trx *trx) override;
   RC next() override;
