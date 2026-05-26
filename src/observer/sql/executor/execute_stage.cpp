@@ -14,7 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #include <string>
 #include <sstream>
-
+#include "sql/operator/aggregation_physical_operator.h"
 #include "sql/executor/execute_stage.h"
 
 #include "common/log/log.h"
@@ -65,18 +65,24 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
   // TODO 这里也可以优化一下，是否可以让physical operator自己设置tuple schema
   TupleSchema schema;
   switch (stmt->type()) {
-    case StmtType::SELECT: {
-      SelectStmt *select_stmt = static_cast<SelectStmt *>(stmt);
-      bool with_table_name = select_stmt->tables().size() > 1;
-
-      for (const Field &field : select_stmt->query_fields()) {
-        if (with_table_name) {
-          schema.append_cell(field.table_name(), field.field_name());
-        } else {
-          schema.append_cell(field.field_name());
-        }
+  case StmtType::SELECT: {
+  SelectStmt *select_stmt = static_cast<SelectStmt *>(stmt);
+  
+  if (select_stmt->has_aggregation()) {
+    for (const AggregationField &af : select_stmt->agg_fields()) {
+      schema.append_cell(af.alias.c_str());
+    }
+  } else {
+    bool with_table_name = select_stmt->tables().size() > 1;
+    for (const Field &field : select_stmt->query_fields()) {
+      if (with_table_name) {
+        schema.append_cell(field.table_name(), field.field_name());
+      } else {
+        schema.append_cell(field.field_name());
       }
-    } break;
+    }
+  }
+} break;
 
     case StmtType::CALC: {
       CalcPhysicalOperator *calc_operator = static_cast<CalcPhysicalOperator *>(physical_operator.get());

@@ -25,7 +25,7 @@ class FieldMeta;
 class FilterStmt;
 class Db;
 class Table;
-
+#include "sql/operator/aggregation_physical_operator.h"
 /**
  * @brief 表示select语句
  * @ingroup Statement
@@ -40,7 +40,8 @@ public:
   {
     return StmtType::SELECT;
   }
-
+const std::vector<AggregationField> &agg_fields() const { return agg_fields_; }
+bool has_aggregation() const { return has_aggregation_; }
 public:
   static RC create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt);
 
@@ -62,4 +63,6 @@ private:
   std::vector<Field> query_fields_;
   std::vector<Table *> tables_;
   FilterStmt *filter_stmt_ = nullptr;
+  std::vector<AggregationField> agg_fields_;
+  bool has_aggregation_ = false;
 };

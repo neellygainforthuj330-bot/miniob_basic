@@ -25,5 +25,8 @@ GRTAGS
 GPATH
 GTAGS
 docs/book
+*.swp
+*.swo
+*~
 #*#
 miniob/ 

@@ -28,12 +28,16 @@ See the Mulan PSL v2 for more details. */
 #include "event/sql_event.h"
 #include "event/session_event.h"
 
+#include "sql/operator/aggregation_physical_operator.h"
+#include "sql/stmt/select_stmt.h"
+
 using namespace std;
 using namespace common;
 
 RC OptimizeStage::handle_request(SQLStageEvent *sql_event)
 {
   unique_ptr<LogicalOperator> logical_operator;
+
   RC rc = create_logical_plan(sql_event, logical_operator);
   if (rc != RC::SUCCESS) {
     if (rc != RC::UNIMPLENMENT) {
@@ -61,8 +65,29 @@ RC OptimizeStage::handle_request(SQLStageEvent *sql_event)
     return rc;
   }
 
-  sql_event->set_operator(std::move(physical_operator));
+  // 聚合查询包一层聚合算子
+  Stmt *stmt = sql_event->stmt();
+  if (stmt != nullptr && stmt->type() == StmtType::SELECT) {
+    SelectStmt *select_stmt = static_cast<SelectStmt *>(stmt);
 
+    if (select_stmt->has_aggregation()) {
+      AggregationPhysicalOperator *agg_oper =
+          new AggregationPhysicalOperator();
+
+      for (const AggregationField &af : select_stmt->agg_fields()) {
+        agg_oper->add_aggregation(
+            af.agg_type,
+            af.table,
+            af.field_meta,
+            af.alias);
+      }
+
+      agg_oper->add_child(std::move(physical_operator));
+      physical_operator.reset(agg_oper);
+    }
+  }
+
+  sql_event->set_operator(std::move(physical_operator));
   return rc;
 }
 
@@ -73,39 +98,61 @@ RC OptimizeStage::optimize(unique_ptr<LogicalOperator> &oper)
 }
 
 RC OptimizeStage::generate_physical_plan(
-    unique_ptr<LogicalOperator> &logical_operator, unique_ptr<PhysicalOperator> &physical_operator)
+    unique_ptr<LogicalOperator> &logical_operator,
+    unique_ptr<PhysicalOperator> &physical_operator)
 {
   RC rc = RC::SUCCESS;
-  rc = physical_plan_generator_.create(*logical_operator, physical_operator);
+
+  rc = physical_plan_generator_.create(
+      *logical_operator,
+      physical_operator);
+
   if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to create physical operator. rc=%s", strrc(rc));
+    LOG_WARN("failed to create physical operator. rc=%s",
+             strrc(rc));
+    return rc;
   }
+
   return rc;
 }
 
-RC OptimizeStage::rewrite(unique_ptr<LogicalOperator> &logical_operator)
+RC OptimizeStage::rewrite(
+    unique_ptr<LogicalOperator> &logical_operator)
 {
   RC rc = RC::SUCCESS;
-  
+
   bool change_made = false;
+
   do {
     change_made = false;
-    rc = rewriter_.rewrite(logical_operator, change_made);
+
+    rc = rewriter_.rewrite(
+        logical_operator,
+        change_made);
+
     if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to do expression rewrite on logical plan. rc=%s", strrc(rc));
+      LOG_WARN(
+          "failed to do expression rewrite on logical plan. rc=%s",
+          strrc(rc));
       return rc;
     }
+
   } while (change_made);
 
   return rc;
 }
 
-RC OptimizeStage::create_logical_plan(SQLStageEvent *sql_event, unique_ptr<LogicalOperator> &logical_operator)
+RC OptimizeStage::create_logical_plan(
+    SQLStageEvent *sql_event,
+    unique_ptr<LogicalOperator> &logical_operator)
 {
   Stmt *stmt = sql_event->stmt();
+
   if (nullptr == stmt) {
     return RC::UNIMPLENMENT;
   }
 
-  return logical_plan_generator_.create(stmt, logical_operator);
+  return logical_plan_generator_.create(
+      stmt,
+      logical_operator);
 }

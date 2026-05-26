@@ -103,6 +103,11 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         DOT //QUOTE
         INTO
         VALUES
+        MAX
+        MIN
+        COUNT
+        AVG
+        SUM
         FROM
         WHERE
         AND
@@ -550,6 +555,31 @@ rel_attr:
       $$->attribute_name = $3;
       free($1);
       free($3);
+    }
+    | MAX LBRACE rel_attr RBRACE {
+      $$ = $3;
+      $$->aggregation_type = AGG_MAX;
+    }
+    | MIN LBRACE rel_attr RBRACE {
+      $$ = $3;
+      $$->aggregation_type = AGG_MIN;
+    }
+    | COUNT LBRACE rel_attr RBRACE {
+      $$ = $3;
+      $$->aggregation_type = AGG_COUNT;
+    }
+    | COUNT LBRACE '*' RBRACE {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = "*";
+      $$->aggregation_type = AGG_COUNT;
+    }
+    | AVG LBRACE rel_attr RBRACE {
+      $$ = $3;
+      $$->aggregation_type = AGG_AVG;
+    }
+    | SUM LBRACE rel_attr RBRACE {
+      $$ = $3;
+      $$->aggregation_type = AGG_SUM;
     }
     ;
 
