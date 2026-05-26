@@ -34,8 +34,12 @@ RC AggregationPhysicalOperator::next()
 
   int n = agg_fields_.size();
   std::vector<double> sum_vals(n, 0);
-  std::vector<double> max_vals(n, std::numeric_limits<double>::lowest());
-  std::vector<double> min_vals(n, std::numeric_limits<double>::max());
+  std::vector<double> max_num_vals(n, std::numeric_limits<double>::lowest());
+  std::vector<double> min_num_vals(n, std::numeric_limits<double>::max());
+  std::vector<std::string> max_str_vals(n);
+  std::vector<std::string> min_str_vals(n);
+  std::vector<bool> has_str_max(n, false);
+  std::vector<bool> has_str_min(n, false);
   std::vector<int> counts(n, 0);
 
   RC rc = RC::SUCCESS;
@@ -54,16 +58,35 @@ RC AggregationPhysicalOperator::next()
       rc = tuple->find_cell(spec, val);
       if (rc != RC::SUCCESS) continue;
 
-      double v = 0;
-      if (val.attr_type() == INTS) v = val.get_int();
-      else if (val.attr_type() == FLOATS) v = val.get_float();
-      else if (af.agg_type == AGG_COUNT) { counts[i]++; continue; }
-      else continue;
-
-      sum_vals[i] += v;
-      if (v > max_vals[i]) max_vals[i] = v;
-      if (v < min_vals[i]) min_vals[i] = v;
-      counts[i]++;
+      AttrType attr_type = val.attr_type();
+      if (attr_type == INTS || attr_type == FLOATS) {
+        double v = (attr_type == INTS) ? val.get_int() : val.get_float();
+        sum_vals[i] += v;
+        if (v > max_num_vals[i]) max_num_vals[i] = v;
+        if (v < min_num_vals[i]) min_num_vals[i] = v;
+        counts[i]++;
+      } else if (attr_type == CHARS) {
+        std::string s = val.get_string();
+        if (af.agg_type == AGG_COUNT) {
+          counts[i]++;
+        }
+        if (af.agg_type == AGG_MAX) {
+          if (!has_str_max[i] || s > max_str_vals[i]) {
+            max_str_vals[i] = s;
+            has_str_max[i] = true;
+          }
+        }
+        if (af.agg_type == AGG_MIN) {
+          if (!has_str_min[i] || s < min_str_vals[i]) {
+            min_str_vals[i] = s;
+            has_str_min[i] = true;
+          }
+        }
+      } else if (attr_type == DATES) {
+        if (af.agg_type == AGG_COUNT) {
+          counts[i]++;
+        }
+      }
     }
   }
 
@@ -90,16 +113,28 @@ RC AggregationPhysicalOperator::next()
           result.set_float(0);
         break;
       case AGG_MAX:
-        if (af.field_meta && af.field_meta->type() == INTS)
-          result.set_int((int)max_vals[i]);
-        else
-          result.set_float((float)max_vals[i]);
+        if (af.field_meta && af.field_meta->type() == CHARS) {
+          if (has_str_max[i])
+            result.set_string(max_str_vals[i].c_str());
+          else
+            result.set_string("");
+        } else if (af.field_meta && af.field_meta->type() == INTS) {
+          result.set_int((int)max_num_vals[i]);
+        } else {
+          result.set_float((float)max_num_vals[i]);
+        }
         break;
       case AGG_MIN:
-        if (af.field_meta && af.field_meta->type() == INTS)
-          result.set_int((int)min_vals[i]);
-        else
-          result.set_float((float)min_vals[i]);
+        if (af.field_meta && af.field_meta->type() == CHARS) {
+          if (has_str_min[i])
+            result.set_string(min_str_vals[i].c_str());
+          else
+            result.set_string("");
+        } else if (af.field_meta && af.field_meta->type() == INTS) {
+          result.set_int((int)min_num_vals[i]);
+        } else {
+          result.set_float((float)min_num_vals[i]);
+        }
         break;
       default:
         result.set_int(0);
