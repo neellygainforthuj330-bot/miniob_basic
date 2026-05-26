@@ -49,6 +49,7 @@ RC ResolveStage::handle_request(SQLStageEvent *sql_event)
   if (rc != RC::SUCCESS && rc != RC::UNIMPLENMENT) {
     LOG_WARN("failed to create stmt. rc=%d:%s", rc, strrc(rc));
     sql_result->set_return_code(rc);
+    sql_result->set_state_string("");
     return rc;
   }
 
