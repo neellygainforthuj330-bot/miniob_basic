@@ -206,6 +206,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <boolean>             opt_asc_desc
 %type <select_expr>         select_expr_item
 %type <select_expr_list>    select_expr_list
+%type <rel_attr>            agg_expr
 %type <join_clause>         join_clause
 // commands should be a list but I use a single command instead
 %type <sql_node>            commands
@@ -469,41 +470,7 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID join_clause where order_by_clause
-    {
-      $$ = new ParsedSqlNode(SCF_SELECT);
-      if ($2 != nullptr) {
-        $$->selection.attributes.swap(*$2);
-        delete $2;
-      }
-      // Add join/comma tables first, then $4 main table, then reverse to get correct FROM order
-      if ($5 != nullptr) {
-        for (auto &r : $5->relations) {
-          $$->selection.relations.push_back(r);
-        }
-        for (auto &c : $5->conditions) {
-          $$->selection.conditions.emplace_back(std::move(c));
-        }
-        delete $5;
-      }
-      $$->selection.relations.push_back($4);
-      std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
-
-      // Merge WHERE conditions
-      if ($6 != nullptr) {
-        for (auto &c : *$6) {
-          $$->selection.conditions.emplace_back(std::move(c));
-        }
-        delete $6;
-      }
-      if ($7 != nullptr) {
-        std::reverse($7->begin(), $7->end());
-        $$->selection.order_by.swap(*$7);
-        delete $7;
-      }
-      free($4);
-    }
-    | SELECT select_expr_list FROM ID join_clause where order_by_clause
+    SELECT select_expr_list FROM ID join_clause where order_by_clause
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -522,6 +489,37 @@ select_stmt:        /*  select 语句的语法解析树*/
       $$->selection.relations.push_back($4);
       std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
 
+      if ($6 != nullptr) {
+        for (auto &c : *$6) {
+          $$->selection.conditions.emplace_back(std::move(c));
+        }
+        delete $6;
+      }
+      if ($7 != nullptr) {
+        std::reverse($7->begin(), $7->end());
+        $$->selection.order_by.swap(*$7);
+        delete $7;
+      }
+      free($4);
+    }
+    | SELECT select_attr FROM ID join_clause where order_by_clause
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.attributes.swap(*$2);
+        delete $2;
+      }
+      if ($5 != nullptr) {
+        for (auto &r : $5->relations) {
+          $$->selection.relations.push_back(r);
+        }
+        for (auto &c : $5->conditions) {
+          $$->selection.conditions.emplace_back(std::move(c));
+        }
+        delete $5;
+      }
+      $$->selection.relations.push_back($4);
+      std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
       if ($6 != nullptr) {
         for (auto &c : *$6) {
           $$->selection.conditions.emplace_back(std::move(c));
@@ -600,6 +598,41 @@ expression:
     }
     ;
 
+// 聚合表达式
+agg_expr:
+    MAX LBRACE rel_attr RBRACE
+    {
+      $$ = $3;
+      $$->aggregation_type = AGG_MAX;
+    }
+    | MIN LBRACE rel_attr RBRACE
+    {
+      $$ = $3;
+      $$->aggregation_type = AGG_MIN;
+    }
+    | COUNT LBRACE rel_attr RBRACE
+    {
+      $$ = $3;
+      $$->aggregation_type = AGG_COUNT;
+    }
+    | COUNT LBRACE '*' RBRACE
+    {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = "*";
+      $$->aggregation_type = AGG_COUNT;
+    }
+    | AVG LBRACE rel_attr RBRACE
+    {
+      $$ = $3;
+      $$->aggregation_type = AGG_AVG;
+    }
+    | SUM LBRACE rel_attr RBRACE
+    {
+      $$ = $3;
+      $$->aggregation_type = AGG_SUM;
+    }
+    ;
+
 select_attr:
     '*' {
       $$ = new std::vector<RelAttrSqlNode>;
@@ -608,23 +641,25 @@ select_attr:
       attr.attribute_name = "*";
       $$->emplace_back(attr);
     }
-    | rel_attr attr_list {
-      if ($2 != nullptr) {
-        $$ = $2;
-      } else {
-        $$ = new std::vector<RelAttrSqlNode>;
-      }
-      $$->emplace_back(*$1);
-      delete $1;
-    }
     ;
 
+// Unified select items: comma-separated list of expressions
+// Simple field names become UnboundFieldExpr (resolved later)
 select_expr_item:
     expression
     {
       $$ = new SelectExprNode;
       $$->expr = $1;
       $$->alias = $1->name();
+    }
+    | agg_expr
+    {
+      $$ = new SelectExprNode;
+      $$->agg_type = $1->aggregation_type;
+      $$->agg_field = $1->attribute_name;
+      $$->agg_table = $1->relation_name;
+      $$->alias = $1->attribute_name;
+      delete $1;
     }
     ;
 
@@ -646,7 +681,6 @@ select_expr_list:
       delete $1;
     }
     ;
-select_attr:
 
 rel_attr:
     ID {
@@ -746,24 +780,17 @@ condition_list:
     }
     | condition {
       $$ = new std::vector<ConditionSqlNode>;
-      $$->emplace_back(*$1);
+      $$->emplace_back(std::move(*$1));
       delete $1;
     }
     | condition AND condition_list {
       $$ = $3;
-      $$->emplace_back(*$1);
+      $$->emplace_back(std::move(*$1));
       delete $1;
     }
     ;
 condition:
-    expression comp_op expression
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_expr = $1;
-      $$->right_expr = $3;
-      $$->comp = $2;
-    }
-    | expression LIKE value
+    expression LIKE value
     {
       $$ = new ConditionSqlNode;
       $$->left_expr = $1;
@@ -778,6 +805,13 @@ condition:
       $$->right_expr = new ValueExpr(*$4);
       $$->comp = NOT_LIKE;
       delete $4;
+    }
+    | expression comp_op expression
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_expr = $1;
+      $$->right_expr = $3;
+      $$->comp = $2;
     }
     ;
 

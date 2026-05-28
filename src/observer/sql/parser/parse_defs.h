@@ -88,6 +88,33 @@ struct ConditionSqlNode
   Expression     *left_expr = nullptr;
   Expression     *right_expr = nullptr;
 
+  ConditionSqlNode() = default;
+  ConditionSqlNode(ConditionSqlNode &&other) noexcept
+      : left_is_attr(other.left_is_attr), left_value(std::move(other.left_value)),
+        left_attr(std::move(other.left_attr)), comp(other.comp),
+        right_is_attr(other.right_is_attr), right_attr(std::move(other.right_attr)),
+        right_value(std::move(other.right_value)),
+        left_expr(other.left_expr), right_expr(other.right_expr)
+  {
+    other.left_expr = nullptr;
+    other.right_expr = nullptr;
+  }
+  ConditionSqlNode &operator=(ConditionSqlNode &&other) noexcept
+  {
+    if (this != &other) {
+      delete left_expr; delete right_expr;
+      left_is_attr = other.left_is_attr; left_value = std::move(other.left_value);
+      left_attr = std::move(other.left_attr); comp = other.comp;
+      right_is_attr = other.right_is_attr; right_attr = std::move(other.right_attr);
+      right_value = std::move(other.right_value);
+      left_expr = other.left_expr; right_expr = other.right_expr;
+      other.left_expr = nullptr; other.right_expr = nullptr;
+    }
+    return *this;
+  }
+  ConditionSqlNode(const ConditionSqlNode &) = delete;
+  ConditionSqlNode &operator=(const ConditionSqlNode &) = delete;
+
   ~ConditionSqlNode();
 };
 
@@ -122,7 +149,10 @@ struct JoinClauseNode {
 struct SelectExprNode
 {
   Expression *expr = nullptr;
-  std::string alias;  ///< 别名，或自动生成的表达式文本
+  std::string alias;
+  AggregationType agg_type = AGG_NONE;
+  std::string agg_field;       // 聚合的字段名（仅 agg_type != AGG_NONE 时有效）
+  std::string agg_table;       // 聚合的表名
 };
 
 struct SelectSqlNode
