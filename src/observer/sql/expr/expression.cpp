@@ -17,6 +17,39 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
+static bool match_like(const char *str, int str_len, const char *pattern, int pat_len)
+{
+  int si = 0, pi = 0;
+  int star_pi = -1;
+  int match_si = 0;
+
+  while (si < str_len) {
+    if (pi < pat_len && pattern[pi] == '_') {
+      si++;
+      pi++;
+    } else if (pi < pat_len && pattern[pi] == str[si]) {
+      si++;
+      pi++;
+    } else if (pi < pat_len && pattern[pi] == '%') {
+      star_pi = pi;
+      match_si = si;
+      pi++;
+    } else if (star_pi != -1) {
+      pi = star_pi + 1;
+      match_si++;
+      si = match_si;
+    } else {
+      return false;
+    }
+  }
+
+  while (pi < pat_len && pattern[pi] == '%') {
+    pi++;
+  }
+
+  return pi == pat_len;
+}
+
 RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
 {
   return tuple.find_cell(TupleCellSpec(table_name(), field_name()), value);
@@ -109,6 +142,18 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
     } break;
     case GREAT_THAN: {
       result = (cmp_result > 0);
+    } break;
+    case LIKE_OP: {
+      string left_str = left.to_string();
+      string right_str = right.to_string();
+      result = match_like(left_str.c_str(), (int)left_str.length(),
+                          right_str.c_str(), (int)right_str.length());
+    } break;
+    case NOT_LIKE: {
+      string left_str = left.to_string();
+      string right_str = right.to_string();
+      result = !match_like(left_str.c_str(), (int)left_str.length(),
+                           right_str.c_str(), (int)right_str.length());
     } break;
     default: {
       LOG_WARN("unsupported comparison. %d", comp_);

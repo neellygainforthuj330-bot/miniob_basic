@@ -108,6 +108,8 @@ SUM                                     RETURN_TOKEN(SUM);
 FROM                                    RETURN_TOKEN(FROM);
 WHERE                                   RETURN_TOKEN(WHERE);
 AND                                     RETURN_TOKEN(AND);
+LIKE                                    RETURN_TOKEN(LIKE);
+NOT                                     RETURN_TOKEN(NOT);
 INSERT                                  RETURN_TOKEN(INSERT);
 INTO                                    RETURN_TOKEN(INTO);
 VALUES                                  RETURN_TOKEN(VALUES);

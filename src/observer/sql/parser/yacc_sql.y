@@ -111,6 +111,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         FROM
         WHERE
         AND
+        LIKE
+        NOT
         SET
         INNER
         JOIN
@@ -725,6 +727,30 @@ condition:
 
       delete $1;
       delete $3;
+    }
+    | rel_attr LIKE value
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_is_attr = 1;
+      $$->left_attr = *$1;
+      $$->right_is_attr = 0;
+      $$->right_value = *$3;
+      $$->comp = LIKE_OP;
+
+      delete $1;
+      delete $3;
+    }
+    | rel_attr NOT LIKE value
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_is_attr = 1;
+      $$->left_attr = *$1;
+      $$->right_is_attr = 0;
+      $$->right_value = *$4;
+      $$->comp = NOT_LIKE;
+
+      delete $1;
+      delete $4;
     }
     ;
 

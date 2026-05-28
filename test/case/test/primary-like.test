@@ -1,0 +1,34 @@
+-- echo initialization
+create table like_test(id int, name char);
+
+-- echo 1. insert
+insert into like_test values (1,'abc');
+insert into like_test values (2,'abd');
+insert into like_test values (3,'xyz');
+insert into like_test values (4,'a_cd');
+insert into like_test values (5,'abcd');
+-- sort select * from like_test;
+
+-- echo 2. like exact match
+select * from like_test where name like 'abc';
+
+-- echo 3. like % wildcard
+select * from like_test where name like 'ab%';
+
+-- echo 4. like _ wildcard
+select * from like_test where name like 'ab_';
+
+-- echo 5. like %cd end match
+select * from like_test where name like '%cd';
+
+-- echo 6. like %z% middle match
+select * from like_test where name like '%z%';
+
+-- echo 7. not like
+select * from like_test where name not like 'ab%';
+
+-- echo 8. like a_c% escape underscore
+select * from like_test where name like 'a_c%';
+
+-- echo cleanup
+drop table like_test;
