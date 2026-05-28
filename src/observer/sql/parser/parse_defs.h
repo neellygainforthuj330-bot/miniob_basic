@@ -96,11 +96,25 @@ struct ConditionSqlNode
  * 甚至可以包含复杂的表达式。
  */
 
+struct OrderByNode
+{
+  std::string relation_name;
+  std::string attribute_name;
+  bool is_asc = true;
+};
+
+// INNER JOIN 语法辅助结构: 保存 join 子句中收集到的表和 ON 条件
+struct JoinClauseNode {
+  std::vector<std::string>        relations;
+  std::vector<ConditionSqlNode>   conditions;
+};
+
 struct SelectSqlNode
 {
   std::vector<RelAttrSqlNode>     attributes;    ///< attributes in select clause
   std::vector<std::string>        relations;     ///< 查询的表
   std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
+  std::vector<OrderByNode>        order_by;      ///< order by 字段
 };
 
 /**

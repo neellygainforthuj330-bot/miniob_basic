@@ -112,11 +112,16 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         WHERE
         AND
         SET
+        INNER
+        JOIN
         ON
         LOAD
         DATA
         INFILE
         EXPLAIN
+        ORDER
+        BY
+        ASC
         EQ
         LT
         GT
@@ -139,9 +144,13 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<ConditionSqlNode> *   condition_list;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
   std::vector<std::string> *        relation_list;
+  OrderByNode *                     order_by_node;
+  std::vector<OrderByNode> *        order_by_list;
   char *                            string;
   int                               number;
   float                             floats;
+  bool                              boolean;
+  JoinClauseNode *                  join_clause;
 }
 
 %token <number> NUMBER
@@ -163,7 +172,6 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <condition_list>      where
 %type <condition_list>      condition_list
 %type <rel_attr_list>       select_attr
-%type <relation_list>       rel_list
 %type <rel_attr_list>       attr_list
 %type <expression>          expression
 %type <expression_list>     expression_list
@@ -188,6 +196,11 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <sql_node>            help_stmt
 %type <sql_node>            exit_stmt
 %type <sql_node>            command_wrapper
+%type <order_by_node>       order_by_item
+%type <order_by_list>       order_by_clause
+%type <order_by_list>       order_by_list
+%type <boolean>             opt_asc_desc
+%type <join_clause>         join_clause
 // commands should be a list but I use a single command instead
 %type <sql_node>            commands
 
@@ -450,23 +463,37 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID rel_list where
+    SELECT select_attr FROM ID join_clause where order_by_clause
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
         $$->selection.attributes.swap(*$2);
         delete $2;
       }
+      // Add join/comma tables first, then $4 main table, then reverse to get correct FROM order
       if ($5 != nullptr) {
-        $$->selection.relations.swap(*$5);
+        for (auto &r : $5->relations) {
+          $$->selection.relations.push_back(r);
+        }
+        for (auto &c : $5->conditions) {
+          $$->selection.conditions.emplace_back(std::move(c));
+        }
         delete $5;
       }
       $$->selection.relations.push_back($4);
       std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
 
+      // Merge WHERE conditions
       if ($6 != nullptr) {
-        $$->selection.conditions.swap(*$6);
+        for (auto &c : *$6) {
+          $$->selection.conditions.emplace_back(std::move(c));
+        }
         delete $6;
+      }
+      if ($7 != nullptr) {
+        std::reverse($7->begin(), $7->end());
+        $$->selection.order_by.swap(*$7);
+        delete $7;
       }
       free($4);
     }
@@ -600,20 +627,29 @@ attr_list:
     }
     ;
 
-rel_list:
+join_clause:
     /* empty */
     {
-      $$ = nullptr;
+      $$ = new JoinClauseNode;
     }
-    | COMMA ID rel_list {
-      if ($3 != nullptr) {
-        $$ = $3;
-      } else {
-        $$ = new std::vector<std::string>;
-      }
-
-      $$->push_back($2);
+    | COMMA ID join_clause
+    {
+      $$ = $3;
+      $$->relations.push_back($2);
       free($2);
+    }
+    | INNER JOIN ID ON condition_list join_clause
+    {
+      $$ = $6;
+      $$->relations.push_back($3);
+      if ($5 != nullptr) {
+        std::reverse($5->begin(), $5->end());
+        for (auto &c : *$5) {
+          $$->conditions.emplace_back(std::move(c));
+        }
+        delete $5;
+      }
+      free($3);
     }
     ;
 where:
@@ -730,6 +766,62 @@ set_variable_stmt:
       $$->set_variable.value = *$4;
       free($2);
       delete $4;
+    }
+    ;
+
+order_by_clause:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | ORDER BY order_by_list
+    {
+      $$ = $3;
+    }
+    ;
+
+order_by_list:
+    order_by_item
+    {
+      $$ = new std::vector<OrderByNode>;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    | order_by_item COMMA order_by_list
+    {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<OrderByNode>;
+      }
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    ;
+
+order_by_item:
+    rel_attr opt_asc_desc
+    {
+      $$ = new OrderByNode;
+      $$->relation_name = $1->relation_name;
+      $$->attribute_name = $1->attribute_name;
+      $$->is_asc = $2;
+      delete $1;
+    }
+    ;
+
+opt_asc_desc:
+    /* empty */
+    {
+      $$ = true;
+    }
+    | ASC
+    {
+      $$ = true;
+    }
+    | DESC
+    {
+      $$ = false;
     }
     ;
 

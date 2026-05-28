@@ -184,6 +184,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->filter_stmt_ = filter_stmt;
   select_stmt->agg_fields_.swap(agg_fields);
   select_stmt->has_aggregation_ = has_aggregation;
+  select_stmt->order_by_ = select_sql.order_by;
   stmt = select_stmt;
   return RC::SUCCESS;
 }

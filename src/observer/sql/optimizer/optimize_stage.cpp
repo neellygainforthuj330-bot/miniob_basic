@@ -29,6 +29,7 @@ See the Mulan PSL v2 for more details. */
 #include "event/session_event.h"
 
 #include "sql/operator/aggregation_physical_operator.h"
+#include "sql/operator/sort_physical_operator.h"
 #include "sql/stmt/select_stmt.h"
 
 using namespace std;
@@ -65,7 +66,7 @@ RC OptimizeStage::handle_request(SQLStageEvent *sql_event)
     return rc;
   }
 
-  // 聚合查询包一层聚合算子
+  // 聚合查询包一层聚合算子，排序包一层排序算子
   Stmt *stmt = sql_event->stmt();
   if (stmt != nullptr && stmt->type() == StmtType::SELECT) {
     SelectStmt *select_stmt = static_cast<SelectStmt *>(stmt);
@@ -84,6 +85,17 @@ RC OptimizeStage::handle_request(SQLStageEvent *sql_event)
 
       agg_oper->add_child(std::move(physical_operator));
       physical_operator.reset(agg_oper);
+    }
+
+    if (select_stmt->has_order_by()) {
+      SortPhysicalOperator *sort_oper = new SortPhysicalOperator();
+
+      for (const OrderByNode &ob : select_stmt->order_by()) {
+        sort_oper->add_order_by(ob);
+      }
+
+      sort_oper->add_child(std::move(physical_operator));
+      physical_operator.reset(sort_oper);
     }
   }
 

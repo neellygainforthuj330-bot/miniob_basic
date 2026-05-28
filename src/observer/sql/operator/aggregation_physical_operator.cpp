@@ -158,7 +158,7 @@ RC AggregationPhysicalOperator::next()
   result_tuple_.set_aliases(aliases);
 
   computed_ = true;
-  returned_ = false;
+  returned_ = true;
   return RC::SUCCESS;
 }
 

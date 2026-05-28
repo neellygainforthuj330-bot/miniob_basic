@@ -14,6 +14,8 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/optimizer/logical_plan_generator.h"
 
+#include <set>
+
 #include "sql/operator/logical_operator.h"
 #include "sql/operator/calc_logical_operator.h"
 #include "sql/operator/project_logical_operator.h"
@@ -83,6 +85,45 @@ RC LogicalPlanGenerator::create_plan(
 
   const std::vector<Table *> &tables = select_stmt->tables();
   const std::vector<Field> &all_fields = select_stmt->query_fields();
+
+  // Partition filter units: per-table vs join-level.
+  // Also track which tables each join filter references for interleaving.
+  FilterStmt *filter_stmt = select_stmt->filter_stmt();
+  std::vector<const FilterUnit *> join_filters;
+  std::vector<std::set<std::string>> join_filter_tables;
+  std::unordered_map<std::string, std::vector<const FilterUnit *>> table_filters;
+
+  if (filter_stmt != nullptr) {
+    for (const FilterUnit *unit : filter_stmt->filter_units()) {
+      std::string ref_table;
+      bool single_table = true;
+      std::set<std::string> ref_tables;
+      auto check_obj = [&](const FilterObj &obj) {
+        if (obj.is_attr) {
+          const char *tn = obj.field.table_name();
+          ref_tables.insert(tn);
+          if (ref_table.empty()) {
+            ref_table = tn;
+          } else if (ref_table != std::string(tn)) {
+            single_table = false;
+          }
+        }
+      };
+      check_obj(unit->left());
+      check_obj(unit->right());
+      if (ref_table.empty()) {
+        // Both sides are constant values (e.g. 1=1): skip, tautology
+      } else if (single_table) {
+        table_filters[ref_table].push_back(unit);
+      } else {
+        join_filters.push_back(unit);
+        join_filter_tables.push_back(ref_tables);
+      }
+    }
+  }
+
+  std::set<std::string> joined_tables;
+
   for (Table *table : tables) {
     std::vector<Field> fields;
     for (const Field &field : all_fields) {
@@ -92,6 +133,30 @@ RC LogicalPlanGenerator::create_plan(
     }
 
     unique_ptr<LogicalOperator> table_get_oper(new TableGetLogicalOperator(table, fields, true/*readonly*/));
+
+    // Wrap with per-table predicate if applicable
+    auto it = table_filters.find(table->name());
+    if (it != table_filters.end() && !it->second.empty()) {
+      std::vector<unique_ptr<Expression>> cmp_exprs;
+      for (const FilterUnit *unit : it->second) {
+        auto make_expr = [](const FilterObj &obj) -> unique_ptr<Expression> {
+          if (obj.is_attr) {
+            return unique_ptr<Expression>(new FieldExpr(obj.field));
+          } else {
+            return unique_ptr<Expression>(new ValueExpr(obj.value));
+          }
+        };
+        ComparisonExpr *cmp = new ComparisonExpr(unit->comp(), make_expr(unit->left()), make_expr(unit->right()));
+        cmp_exprs.emplace_back(cmp);
+      }
+      unique_ptr<ConjunctionExpr> conj(new ConjunctionExpr(ConjunctionExpr::Type::AND, cmp_exprs));
+      unique_ptr<PredicateLogicalOperator> pred(new PredicateLogicalOperator(std::move(conj)));
+      pred->add_child(std::move(table_get_oper));
+      table_get_oper = std::move(pred);
+    }
+
+    std::string table_name = table->name();
+
     if (table_oper == nullptr) {
       table_oper = std::move(table_get_oper);
     } else {
@@ -100,13 +165,70 @@ RC LogicalPlanGenerator::create_plan(
       join_oper->add_child(std::move(table_get_oper));
       table_oper = unique_ptr<LogicalOperator>(join_oper);
     }
+
+    joined_tables.insert(table_name);
+
+    // Interleave join predicates: pull out filters whose tables are all now joined
+    if (!join_filters.empty()) {
+      std::vector<const FilterUnit *> covered;
+      auto fit = join_filters.begin();
+      auto tit = join_filter_tables.begin();
+      while (fit != join_filters.end()) {
+        bool all_joined = true;
+        for (const std::string &t : *tit) {
+          if (joined_tables.find(t) == joined_tables.end()) {
+            all_joined = false;
+            break;
+          }
+        }
+        if (all_joined) {
+          covered.push_back(*fit);
+          fit = join_filters.erase(fit);
+          tit = join_filter_tables.erase(tit);
+        } else {
+          ++fit;
+          ++tit;
+        }
+      }
+
+      if (!covered.empty()) {
+        std::vector<unique_ptr<Expression>> cmp_exprs;
+        for (const FilterUnit *unit : covered) {
+          auto make_expr = [](const FilterObj &obj) -> unique_ptr<Expression> {
+            if (obj.is_attr) {
+              return unique_ptr<Expression>(new FieldExpr(obj.field));
+            } else {
+              return unique_ptr<Expression>(new ValueExpr(obj.value));
+            }
+          };
+          ComparisonExpr *cmp = new ComparisonExpr(unit->comp(), make_expr(unit->left()), make_expr(unit->right()));
+          cmp_exprs.emplace_back(cmp);
+        }
+        unique_ptr<ConjunctionExpr> conj(new ConjunctionExpr(ConjunctionExpr::Type::AND, cmp_exprs));
+        unique_ptr<PredicateLogicalOperator> pred(new PredicateLogicalOperator(std::move(conj)));
+        pred->add_child(std::move(table_oper));
+        table_oper = std::move(pred);
+      }
+    }
   }
 
+  // Create join-level predicate from remaining filters
   unique_ptr<LogicalOperator> predicate_oper;
-  RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
-    return rc;
+  if (!join_filters.empty()) {
+    std::vector<unique_ptr<Expression>> cmp_exprs;
+    for (const FilterUnit *unit : join_filters) {
+      auto make_expr = [](const FilterObj &obj) -> unique_ptr<Expression> {
+        if (obj.is_attr) {
+          return unique_ptr<Expression>(new FieldExpr(obj.field));
+        } else {
+          return unique_ptr<Expression>(new ValueExpr(obj.value));
+        }
+      };
+      ComparisonExpr *cmp = new ComparisonExpr(unit->comp(), make_expr(unit->left()), make_expr(unit->right()));
+      cmp_exprs.emplace_back(cmp);
+    }
+    unique_ptr<ConjunctionExpr> conj(new ConjunctionExpr(ConjunctionExpr::Type::AND, cmp_exprs));
+    predicate_oper = unique_ptr<PredicateLogicalOperator>(new PredicateLogicalOperator(std::move(conj)));
   }
 
   unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_fields));

@@ -26,11 +26,12 @@ class FilterStmt;
 class Db;
 class Table;
 #include "sql/operator/aggregation_physical_operator.h"
+#include "sql/parser/parse_defs.h"
 /**
  * @brief 表示select语句
  * @ingroup Statement
  */
-class SelectStmt : public Stmt 
+class SelectStmt : public Stmt
 {
 public:
   SelectStmt() = default;
@@ -42,6 +43,8 @@ public:
   }
 const std::vector<AggregationField> &agg_fields() const { return agg_fields_; }
 bool has_aggregation() const { return has_aggregation_; }
+const std::vector<OrderByNode> &order_by() const { return order_by_; }
+bool has_order_by() const { return !order_by_.empty(); }
 public:
   static RC create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt);
 
@@ -65,4 +68,5 @@ private:
   FilterStmt *filter_stmt_ = nullptr;
   std::vector<AggregationField> agg_fields_;
   bool has_aggregation_ = false;
+  std::vector<OrderByNode> order_by_;
 };

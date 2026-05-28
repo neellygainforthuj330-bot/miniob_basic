@@ -37,6 +37,8 @@ std::string physical_operator_type_name(PhysicalOperatorType type)
       return "STRING_LIST";
     case PhysicalOperatorType::AGGREGATION:
       return "AGGREGATION";
+    case PhysicalOperatorType::SORT:
+      return "SORT";
     default:
       return "UNKNOWN";
   }
