@@ -17,7 +17,7 @@
 | 1.7 | join-tables | primary-join-tables | ✅ 已完成 |
 | 1.8 | simple-sub-query | primary-simple-sub-query | 🔄 待验证 |
 | 1.9 | function | — (无测试文件) | ⬜ |
-| 1.10 | multi-index | primary-multi-index | ⬜ |
+| 1.10 | multi-index | primary-multi-index | ❌ 失败 |
 | 1.11 | unique | primary-unique | ⬜ |
 | 1.12 | null | primary-null | ⬜ |
 | 1.13 | update-select | — (无测试文件) | ⬜ |

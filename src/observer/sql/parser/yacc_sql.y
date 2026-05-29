@@ -410,7 +410,7 @@ value_list:
     {
       $$ = nullptr;
     }
-    | COMMA value value_list  { 
+    | COMMA value value_list  {
       if ($3 != nullptr) {
         $$ = $3;
       } else {

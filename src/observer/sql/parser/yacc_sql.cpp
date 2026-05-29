@@ -2052,7 +2052,7 @@ yyreduce:
 
   case 46: /* value_list: COMMA value value_list  */
 #line 413 "yacc_sql.y"
-                              { 
+                              {
       if ((yyvsp[0].value_list) != nullptr) {
         (yyval.value_list) = (yyvsp[0].value_list);
       } else {
