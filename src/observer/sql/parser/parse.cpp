@@ -13,10 +13,79 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include <mutex>
+#include <string>
+#include <vector>
+#include <cstring>
+#include <cctype>
 #include "sql/parser/parse.h"
 #include "common/log/log.h"
 #include "sql/expr/expression.h"
 RC parse(char *st, ParsedSqlNode *sqln);
+
+// Split multi-tuple INSERT like VALUES (a,b),(c,d) into individual INSERTs
+static bool split_multi_insert(const char *sql, std::vector<std::string> &out)
+{
+  const char *p = sql;
+  while (*p && isspace((unsigned char)*p)) p++;
+  if (strncasecmp(p, "insert", 6) != 0) return false;
+
+  const char *values = strcasestr(p, "values");
+  if (!values) return false;
+  values += 6;
+  while (*values && isspace((unsigned char)*values)) values++;
+  if (*values != '(') return false;
+
+  // Find all parenthesized value tuples
+  std::string prefix(sql, values - sql);
+  const char *start = values;
+  int depth = 0;
+  while (*start) {
+    if (*start == '(') {
+      const char *tuple_start = start;
+      depth = 1;
+      start++;
+      while (*start && depth > 0) {
+        if (*start == '(') depth++;
+        else if (*start == ')') depth--;
+        start++;
+      }
+      if (depth != 0) return false;
+      std::string tuple_sql = prefix + std::string(tuple_start, start - tuple_start);
+      out.push_back(tuple_sql);
+      while (*start && (isspace((unsigned char)*start) || *start == ',')) start++;
+    } else {
+      start++;
+    }
+  }
+  return out.size() > 1;
+}
+
+int sql_parse(const char *st, ParsedSqlResult *sql_result);
+
+RC parse(const char *st, ParsedSqlResult *sql_result)
+{
+  std::vector<std::string> inserts;
+  if (split_multi_insert(st, inserts)) {
+    // Multi-tuple INSERT: parse first tuple normally, then merge
+    // values from remaining tuples into the same INSERT node.
+    sql_parse(inserts[0].c_str(), sql_result);
+    for (size_t i = 1; i < inserts.size(); i++) {
+      ParsedSqlResult single_result;
+      sql_parse(inserts[i].c_str(), &single_result);
+      if (!single_result.sql_nodes().empty()) {
+        auto &node = *single_result.sql_nodes().front();
+        if (node.flag == SCF_INSERT) {
+          for (auto &v : node.insertion.values) {
+            sql_result->sql_nodes().front()->insertion.values.emplace_back(std::move(v));
+          }
+        }
+      }
+    }
+    return RC::SUCCESS;
+  }
+  sql_parse(st, sql_result);
+  return RC::SUCCESS;
+}
 
 CalcSqlNode::~CalcSqlNode()
 {
@@ -62,9 +131,3 @@ void ParsedSqlResult::add_sql_node(std::unique_ptr<ParsedSqlNode> sql_node)
 ////////////////////////////////////////////////////////////////////////////////
 
 int sql_parse(const char *st, ParsedSqlResult *sql_result);
-
-RC parse(const char *st, ParsedSqlResult *sql_result)
-{
-  sql_parse(st, sql_result);
-  return RC::SUCCESS;
-}

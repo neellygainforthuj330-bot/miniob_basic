@@ -32,9 +32,9 @@
 |------|------|------|
 | order-by | 10 | ✅ 已完成 |
 | like | 10 | ✅ 已完成 |
-| join-tables | 20 | 🔄 待验证 (fix: CHAR↔FLOAT cross-type compare + try-catch) |
-| expression | 20 | 🔄 待验证 (fix: div-zero sentinel check in compare_value) |
-| insert | 10 | ⬜ 未实现 |
+| join-tables | 20 | ✅ 已完成 (平台确认) |
+| expression | 20 | ⏭️ SKIP (聚合表达式需 parser 再生成了，暂时搁置) |
+| insert | 10 | 🔄 待验证 (multi-tuple preprocessor + InsertStmt validation) |
 | unique | 10 | ⬜ 未实现 |
 | null | 10 | ⬜ 未实现 |
 | simple-sub-query | 10 | ⬜ 未实现 |

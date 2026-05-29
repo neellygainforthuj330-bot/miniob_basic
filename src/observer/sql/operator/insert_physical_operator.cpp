@@ -25,16 +25,24 @@ InsertPhysicalOperator::InsertPhysicalOperator(Table *table, vector<Value> &&val
 
 RC InsertPhysicalOperator::open(Trx *trx)
 {
-  Record record;
-  RC rc = table_->make_record(static_cast<int>(values_.size()), values_.data(), record);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to make record. rc=%s", strrc(rc));
-    return rc;
-  }
+  const int sys_field_num = table_->table_meta().sys_field_num();
+  const int field_num = table_->table_meta().field_num() - sys_field_num;
+  const int total_values = static_cast<int>(values_.size());
+  const int tuple_count = total_values / field_num;
 
-  rc = trx->insert_record(table_, record);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to insert record by transaction. rc=%s", strrc(rc));
+  RC rc = RC::SUCCESS;
+  for (int t = 0; t < tuple_count; t++) {
+    Record record;
+    rc = table_->make_record(field_num, values_.data() + t * field_num, record);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to make record. rc=%s", strrc(rc));
+      return rc;
+    }
+    rc = trx->insert_record(table_, record);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to insert record by transaction. rc=%s", strrc(rc));
+      return rc;
+    }
   }
   return rc;
 }

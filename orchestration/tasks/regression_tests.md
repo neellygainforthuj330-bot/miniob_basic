@@ -14,6 +14,7 @@
 | LIKE | `--test-cases=primary-like` |
 | ORDER-BY (big-order-by) | `--test-cases=primary-order-by` |
 | JOIN-TABLES | `--test-cases=primary-join-tables` |
+| INSERT | `--test-cases=primary-insert` |
 
 ## 运行命令
 
