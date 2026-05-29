@@ -114,11 +114,12 @@ extern int yydebug;
     IN = 315,                      /* IN  */
     EXISTS = 316,                  /* EXISTS  */
     UNIQUE = 317,                  /* UNIQUE  */
-    NUMBER = 318,                  /* NUMBER  */
-    FLOAT = 319,                   /* FLOAT  */
-    ID = 320,                      /* ID  */
-    SSS = 321,                     /* SSS  */
-    UMINUS = 322                   /* UMINUS  */
+    NULL_T = 318,                  /* NULL_T  */
+    NUMBER = 319,                  /* NUMBER  */
+    FLOAT = 320,                   /* FLOAT  */
+    ID = 321,                      /* ID  */
+    SSS = 322,                     /* SSS  */
+    UMINUS = 323                   /* UMINUS  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -127,7 +128,7 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 139 "yacc_sql.y"
+#line 140 "yacc_sql.y"
 
   ParsedSqlNode *                   sql_node;
   ConditionSqlNode *                condition;
@@ -152,7 +153,7 @@ union YYSTYPE
   SelectExprNode *                  select_expr;
   std::vector<SelectExprNode> *     select_expr_list;
 
-#line 156 "yacc_sql.hpp"
+#line 157 "yacc_sql.hpp"
 
 };
 typedef union YYSTYPE YYSTYPE;

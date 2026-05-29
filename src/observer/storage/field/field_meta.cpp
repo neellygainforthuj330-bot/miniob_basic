@@ -24,17 +24,18 @@ const static Json::StaticString FIELD_TYPE("type");
 const static Json::StaticString FIELD_OFFSET("offset");
 const static Json::StaticString FIELD_LEN("len");
 const static Json::StaticString FIELD_VISIBLE("visible");
+const static Json::StaticString FIELD_NULLABLE("nullable");
 
-FieldMeta::FieldMeta() : attr_type_(AttrType::UNDEFINED), attr_offset_(-1), attr_len_(0), visible_(false)
+FieldMeta::FieldMeta() : attr_type_(AttrType::UNDEFINED), attr_offset_(-1), attr_len_(0), visible_(false), nullable_(false)
 {}
 
-FieldMeta::FieldMeta(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible)
+FieldMeta::FieldMeta(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible, bool nullable)
 {
-  [[maybe_unused]] RC rc = this->init(name, attr_type, attr_offset, attr_len, visible);
+  [[maybe_unused]] RC rc = this->init(name, attr_type, attr_offset, attr_len, visible, nullable);
   ASSERT(rc == RC::SUCCESS, "failed to init field meta. rc=%s", strrc(rc));
 }
 
-RC FieldMeta::init(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible)
+RC FieldMeta::init(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible, bool nullable)
 {
   if (common::is_blank(name)) {
     LOG_WARN("Name cannot be empty");
@@ -52,6 +53,7 @@ RC FieldMeta::init(const char *name, AttrType attr_type, int attr_offset, int at
   attr_len_ = attr_len;
   attr_offset_ = attr_offset;
   visible_ = visible;
+  nullable_ = nullable;
 
   LOG_INFO("Init a field with name=%s", name);
   return RC::SUCCESS;
@@ -82,10 +84,16 @@ bool FieldMeta::visible() const
   return visible_;
 }
 
+bool FieldMeta::nullable() const
+{
+  return nullable_;
+}
+
 void FieldMeta::desc(std::ostream &os) const
 {
   os << "field name=" << name_ << ", type=" << attr_type_to_string(attr_type_) << ", len=" << attr_len_
-     << ", visible=" << (visible_ ? "yes" : "no");
+     << ", visible=" << (visible_ ? "yes" : "no")
+     << ", nullable=" << (nullable_ ? "yes" : "no");
 }
 
 void FieldMeta::to_json(Json::Value &json_value) const
@@ -95,6 +103,7 @@ void FieldMeta::to_json(Json::Value &json_value) const
   json_value[FIELD_OFFSET] = attr_offset_;
   json_value[FIELD_LEN] = attr_len_;
   json_value[FIELD_VISIBLE] = visible_;
+  json_value[FIELD_NULLABLE] = nullable_;
 }
 
 RC FieldMeta::from_json(const Json::Value &json_value, FieldMeta &field)
@@ -142,5 +151,10 @@ RC FieldMeta::from_json(const Json::Value &json_value, FieldMeta &field)
   int offset = offset_value.asInt();
   int len = len_value.asInt();
   bool visible = visible_value.asBool();
-  return field.init(name, type, offset, len, visible);
+  bool nullable = false;
+  const Json::Value &nullable_value = json_value[FIELD_NULLABLE];
+  if (nullable_value.isBool()) {
+    nullable = nullable_value.asBool();
+  }
+  return field.init(name, type, offset, len, visible, nullable);
 }
