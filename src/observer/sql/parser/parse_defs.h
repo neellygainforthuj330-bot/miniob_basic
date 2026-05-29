@@ -53,7 +53,7 @@ struct RelAttrSqlNode
  * @brief 描述比较运算符
  * @ingroup SQLParser
  */
-enum CompOp 
+enum CompOp
 {
   EQUAL_TO,     ///< "="
   LESS_EQUAL,   ///< "<="
@@ -63,6 +63,10 @@ enum CompOp
   GREAT_THAN,   ///< ">"
   LIKE_OP,      ///< "LIKE"
   NOT_LIKE,     ///< "NOT LIKE"
+  IN_OP,        ///< "IN"
+  NOT_IN,       ///< "NOT IN"
+  EXISTS_OP,    ///< "EXISTS"
+  NOT_EXISTS,   ///< "NOT EXISTS"
   NO_OP
 };
 

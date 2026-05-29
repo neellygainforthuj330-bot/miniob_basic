@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/expr/expression.h"
 #include "sql/expr/tuple.h"
+#include "sql/parser/parse_defs.h"
 #include "storage/table/table.h"
 #include <unordered_map>
 
@@ -508,4 +509,23 @@ RC ArithmeticExpr::try_get_value(Value &value) const
   }
 
   return calc_value(left_value, right_value, value);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+SubQueryExpr::SubQueryExpr(SelectSqlNode *select_node)
+    : select_node_(select_node)
+{
+}
+
+SubQueryExpr::~SubQueryExpr()
+{
+}
+
+RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const
+{
+  // SubQueryExpr should be resolved (replaced) during filter creation.
+  // If get_value is called, it means the subquery was not properly handled.
+  LOG_WARN("SubQueryExpr::get_value called — should have been resolved during filter creation");
+  return RC::INTERNAL;
 }

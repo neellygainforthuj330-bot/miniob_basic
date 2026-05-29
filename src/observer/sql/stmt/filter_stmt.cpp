@@ -12,8 +12,13 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/lang/string.h"
 #include "sql/stmt/filter_stmt.h"
+#include "sql/stmt/select_stmt.h"
+#include "sql/optimizer/logical_plan_generator.h"
+#include "sql/optimizer/physical_plan_generator.h"
+#include "sql/operator/aggregation_physical_operator.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
+#include "session/session.h"
 
 FilterStmt::~FilterStmt()
 {
@@ -105,7 +110,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   RC rc = RC::SUCCESS;
 
   CompOp comp = condition.comp;
-  if (comp < EQUAL_TO || comp >= NO_OP) {
+if (comp < EQUAL_TO || comp >= NO_OP) {
     LOG_WARN("invalid compare operator : %d", comp);
     return RC::INVALID_ARGUMENT;
   }
@@ -156,8 +161,212 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     rc = resolve_side(right_e, default_table, tables, right_obj, right_simple);
     if (rc != RC::SUCCESS) { delete left_e; return rc; }
 
+    // Check for subquery in right side
+    bool right_is_subquery = (right_e != nullptr && right_e->type() == ExprType::SUBQUERY);
+    bool left_is_subquery  = (left_e  != nullptr && left_e->type()  == ExprType::SUBQUERY);
+    bool is_in_op    = (comp == IN_OP || comp == NOT_IN);
+    bool is_exists_op = (comp == EXISTS_OP || comp == NOT_EXISTS);
+
+    if (right_is_subquery || left_is_subquery) {
+      auto *sq = static_cast<SubQueryExpr *>(right_is_subquery ? right_e : left_e);
+      auto *other_expr = right_is_subquery ? left_e : right_e;
+
+      // 执行子查询
+      LOG_INFO("subquery: executing subquery, relations count=%d", (int)sq->select_node()->relations.size());
+      Stmt *inner_stmt = nullptr;
+      rc = SelectStmt::create(db, *sq->select_node(), inner_stmt);
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("subquery: failed to create subquery stmt. rc=%s", strrc(rc));
+        delete left_e; delete right_e;
+        return rc;
+      }
+      auto *sel_stmt = static_cast<SelectStmt *>(inner_stmt);
+      LOG_INFO("subquery: stmt created, tables=%d", (int)sel_stmt->tables().size());
+
+      LogicalPlanGenerator logic_gen;
+      std::unique_ptr<LogicalOperator> logic_oper;
+      rc = logic_gen.create(sel_stmt, logic_oper);
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("subquery: failed to create subquery logical plan. rc=%s", strrc(rc));
+        delete sel_stmt; delete left_e; delete right_e;
+        return rc;
+      }
+      LOG_INFO("subquery: logical plan created");
+
+      PhysicalPlanGenerator phys_gen;
+      std::unique_ptr<PhysicalOperator> phys_oper;
+      rc = phys_gen.create(*logic_oper, phys_oper);
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("subquery: failed to create subquery physical plan. rc=%s", strrc(rc));
+        delete sel_stmt; delete left_e; delete right_e;
+        return rc;
+      }
+      LOG_INFO("subquery: physical plan created");
+
+      // 聚合查询包一层聚合算子（与 optimize_stage.cpp 一致）
+      if (sel_stmt->has_aggregation()) {
+        AggregationPhysicalOperator *agg_oper = new AggregationPhysicalOperator();
+        for (const AggregationField &af : sel_stmt->agg_fields()) {
+          agg_oper->add_aggregation(af.agg_type, af.table, af.field_meta, af.alias);
+        }
+        agg_oper->add_child(std::move(phys_oper));
+        phys_oper.reset(agg_oper);
+      }
+
+      Session *session = Session::current_session();
+      Trx *trx = session ? session->current_trx() : nullptr;
+      LOG_INFO("subquery: session=%p trx=%p", session, trx);
+      rc = phys_oper->open(trx);
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("subquery: failed to open subquery operator. rc=%s", strrc(rc));
+        delete sel_stmt; delete left_e; delete right_e;
+        return rc;
+      }
+      LOG_INFO("subquery: operator opened, collecting results");
+
+      // 收集子查询结果的第一列
+      std::vector<Value> result_values;
+      int row_count = 0;
+      while ((rc = phys_oper->next()) == RC::SUCCESS) {
+        Tuple *tuple = phys_oper->current_tuple();
+        if (tuple == nullptr) break;
+        row_count++;
+        Value v;
+        rc = tuple->cell_at(0, v);
+        if (rc == RC::SUCCESS) {
+          result_values.push_back(v);
+        }
+      }
+      phys_oper->close();
+      delete sel_stmt;
+      rc = RC::SUCCESS;  // 子查询执行成功，重置 rc（while 循环结束后 rc 是 EOF）
+
+      if (is_exists_op) {
+        // EXISTS / NOT EXISTS
+        bool has_rows = (row_count > 0);
+        if (comp == EXISTS_OP) {
+          if (has_rows) {
+            filter_unit = new FilterUnit;
+            filter_unit->set_custom_expr(new ValueExpr(Value(true)));
+          } else {
+            filter_unit = new FilterUnit;
+            filter_unit->set_custom_expr(new ValueExpr(Value(false)));
+          }
+        } else {
+          if (!has_rows) {
+            filter_unit = new FilterUnit;
+            filter_unit->set_custom_expr(new ValueExpr(Value(true)));
+          } else {
+            filter_unit = new FilterUnit;
+            filter_unit->set_custom_expr(new ValueExpr(Value(false)));
+          }
+        }
+        delete left_e; delete right_e;
+        return rc;
+      }
+
+      if (is_in_op) {
+        // 检查子查询是否使用了 SELECT *（多列），IN/NOT IN 只允许单列
+        const auto &sel_node = *sq->select_node();
+        bool has_star = false;
+        int col_count = 0;
+        if (!sel_node.attributes.empty()) {
+          for (auto &a : sel_node.attributes) {
+            if (a.attribute_name == "*") { has_star = true; break; }
+          }
+          col_count = (int)sel_node.attributes.size();
+        }
+        if (!sel_node.expressions.empty()) {
+          col_count = (int)sel_node.expressions.size();
+        }
+        if (has_star || col_count > 1) {
+          delete left_e; delete right_e;
+          return RC::INVALID_ARGUMENT;
+        }
+
+        // IN / NOT IN — rebuild the left-side expression from FilterObj
+        auto make_left_expr = [&]() -> std::unique_ptr<Expression> {
+          const FilterObj &obj = right_is_subquery ? left_obj : right_obj;
+          if (obj.is_attr) {
+            return std::unique_ptr<Expression>(new FieldExpr(obj.field));
+          } else {
+            return std::unique_ptr<Expression>(new ValueExpr(obj.value));
+          }
+        };
+        if (result_values.empty()) {
+          bool empty_is_true = (comp == NOT_IN);
+          filter_unit = new FilterUnit;
+          if (empty_is_true) {
+            filter_unit->set_custom_expr(new ValueExpr(Value(true)));
+          } else {
+            filter_unit->set_custom_expr(new ValueExpr(Value(false)));
+          }
+        } else if (comp == IN_OP) {
+          std::vector<std::unique_ptr<Expression>> or_children;
+          for (auto &rv : result_values) {
+            or_children.emplace_back(
+              new ComparisonExpr(EQUAL_TO, make_left_expr(),
+                std::unique_ptr<Expression>(new ValueExpr(rv))));
+          }
+          auto *or_expr = new ConjunctionExpr(ConjunctionExpr::Type::OR, or_children);
+          filter_unit = new FilterUnit;
+          filter_unit->set_custom_expr(or_expr);
+        } else {
+          std::vector<std::unique_ptr<Expression>> and_children;
+          for (auto &rv : result_values) {
+            and_children.emplace_back(
+              new ComparisonExpr(NOT_EQUAL, make_left_expr(),
+                std::unique_ptr<Expression>(new ValueExpr(rv))));
+          }
+          auto *and_expr = new ConjunctionExpr(ConjunctionExpr::Type::AND, and_children);
+          filter_unit = new FilterUnit;
+          filter_unit->set_custom_expr(and_expr);
+        }
+        delete left_e; delete right_e;
+        return rc;
+      }
+
+      // 标量子查询（=, <, >, <=, >=, <>）
+      if (row_count > 1) {
+        LOG_WARN("scalar subquery returned more than one row");
+        delete left_e; delete right_e;
+        return RC::INVALID_ARGUMENT;
+      }
+      if (result_values.empty()) {
+        // 空子查询结果 → 比较永远为 false
+        filter_unit = new FilterUnit;
+        filter_unit->set_custom_expr(new ValueExpr(Value(false)));
+        delete left_e; delete right_e;
+        return RC::SUCCESS;
+      }
+
+      // 替换 SubQueryExpr 为 ValueExpr
+      Value scalar_val = result_values[0];
+      Expression *val_expr = new ValueExpr(scalar_val);
+      if (right_is_subquery) {
+        delete right_e;
+        right_e = val_expr;
+        right_simple = true;
+        right_obj.init_value(scalar_val);
+      } else {
+        delete left_e;
+        left_e = val_expr;
+        left_simple = true;
+        left_obj.init_value(scalar_val);
+      }
+
+      // 回退到正常的表达式路径
+      if (left_simple && right_simple) {
+        filter_unit = new FilterUnit();
+        filter_unit->set_comp(comp);
+        filter_unit->set_left(left_obj);
+        filter_unit->set_right(right_obj);
+        return rc;
+      }
+    }
+
     if (left_simple && right_simple && !left_obj.is_attr && !right_obj.is_attr) {
-      // 两边都是常量: 使用表达式路径以保留常量比较语义（避免被 legacy 路径当作 tautology 丢弃）
+      // 两边都是常量: 使用表达式路径以保留常量比较语义
       filter_unit = new FilterUnit();
       filter_unit->set_comp(comp);
       filter_unit->set_left_expr(new ValueExpr(left_obj.value));
@@ -175,8 +384,6 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       if (!left_simple && left_e) {
         filter_unit->set_left_expr(left_e);
       } else if (left_simple) {
-        // 简单侧不用表达式，但 FilterUnit 需要知道这是 expr_based
-        // 用 FieldExpr 或 ValueExpr 包装
         if (left_obj.is_attr) {
           filter_unit->set_left_expr(new FieldExpr(left_obj.field));
         } else {
@@ -196,7 +403,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   }
 
   // Type validation (legacy path only)
-  if (!filter_unit->is_expr_based()) {
+  if (!filter_unit->is_expr_based() && !filter_unit->has_custom_expr()) {
     if (filter_unit->left().is_attr && !filter_unit->right().is_attr) {
       const FieldMeta *field = filter_unit->left().field.meta();
       if (field->type() == DATES && filter_unit->right().value.attr_type() == CHARS) {

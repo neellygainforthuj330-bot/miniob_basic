@@ -130,6 +130,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         LE
         GE
         NE
+        IN
+        EXISTS
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -588,6 +590,18 @@ expression:
     | '-' expression %prec UMINUS {
       $$ = create_arithmetic_expression(ArithmeticExpr::Type::NEGATIVE, $2, nullptr, sql_string, &@$);
     }
+    | LBRACE select_stmt RBRACE {
+      auto *sel = new SelectSqlNode;
+      sel->attributes.swap($2->selection.attributes);
+      sel->expressions.swap($2->selection.expressions);
+      sel->relations.swap($2->selection.relations);
+      sel->aliases.swap($2->selection.aliases);
+      sel->conditions.swap($2->selection.conditions);
+      sel->order_by.swap($2->selection.order_by);
+      $$ = new SubQueryExpr(sel);
+      $$->set_name(token_name(sql_string, &@$));
+      delete $2;
+    }
     | value {
       $$ = new ValueExpr(*$1);
       $$->set_name(token_name(sql_string, &@$));
@@ -812,6 +826,64 @@ condition:
       $$->left_expr = $1;
       $$->right_expr = new ValueExpr(*$4);
       $$->comp = NOT_LIKE;
+      delete $4;
+    }
+    | expression IN LBRACE select_stmt RBRACE
+    {
+      auto *sel = new SelectSqlNode;
+      sel->attributes.swap($4->selection.attributes);
+      sel->expressions.swap($4->selection.expressions);
+      sel->relations.swap($4->selection.relations);
+      sel->aliases.swap($4->selection.aliases);
+      sel->conditions.swap($4->selection.conditions);
+      sel->order_by.swap($4->selection.order_by);
+      $$ = new ConditionSqlNode;
+      $$->left_expr = $1;
+      $$->right_expr = new SubQueryExpr(sel);
+      $$->comp = IN_OP;
+      delete $4;
+    }
+    | expression NOT IN LBRACE select_stmt RBRACE
+    {
+      auto *sel = new SelectSqlNode;
+      sel->attributes.swap($5->selection.attributes);
+      sel->expressions.swap($5->selection.expressions);
+      sel->relations.swap($5->selection.relations);
+      sel->aliases.swap($5->selection.aliases);
+      sel->conditions.swap($5->selection.conditions);
+      sel->order_by.swap($5->selection.order_by);
+      $$ = new ConditionSqlNode;
+      $$->left_expr = $1;
+      $$->right_expr = new SubQueryExpr(sel);
+      $$->comp = NOT_IN;
+      delete $5;
+    }
+    | EXISTS LBRACE select_stmt RBRACE
+    {
+      auto *sel = new SelectSqlNode;
+      sel->attributes.swap($3->selection.attributes);
+      sel->expressions.swap($3->selection.expressions);
+      sel->relations.swap($3->selection.relations);
+      sel->aliases.swap($3->selection.aliases);
+      sel->conditions.swap($3->selection.conditions);
+      sel->order_by.swap($3->selection.order_by);
+      $$ = new ConditionSqlNode;
+      $$->right_expr = new SubQueryExpr(sel);
+      $$->comp = EXISTS_OP;
+      delete $3;
+    }
+    | NOT EXISTS LBRACE select_stmt RBRACE
+    {
+      auto *sel = new SelectSqlNode;
+      sel->attributes.swap($4->selection.attributes);
+      sel->expressions.swap($4->selection.expressions);
+      sel->relations.swap($4->selection.relations);
+      sel->aliases.swap($4->selection.aliases);
+      sel->conditions.swap($4->selection.conditions);
+      sel->order_by.swap($4->selection.order_by);
+      $$ = new ConditionSqlNode;
+      $$->right_expr = new SubQueryExpr(sel);
+      $$->comp = NOT_EXISTS;
       delete $4;
     }
     | expression comp_op expression

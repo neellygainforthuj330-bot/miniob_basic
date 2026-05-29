@@ -84,12 +84,17 @@ public:
   void set_left_expr(Expression *e) { left_expr_ = e; }
   void set_right_expr(Expression *e) { right_expr_ = e; }
 
+  bool has_custom_expr() const { return custom_expr_ != nullptr; }
+  Expression *custom_expr() const { return custom_expr_; }
+  void set_custom_expr(Expression *e) { custom_expr_ = e; }
+
 private:
   CompOp comp_ = NO_OP;
   FilterObj left_;
   FilterObj right_;
   Expression *left_expr_ = nullptr;
   Expression *right_expr_ = nullptr;
+  Expression *custom_expr_ = nullptr;
 };
 
 /**

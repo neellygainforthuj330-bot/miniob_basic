@@ -102,6 +102,20 @@ static std::unique_ptr<Expression> clone_expr_tree(Expression *e)
       auto child = clone_expr_tree(ce->child().get());
       return std::unique_ptr<Expression>(new CastExpr(std::move(child), ce->value_type()));
     }
+    case ExprType::CONJUNCTION: {
+      auto *conj = static_cast<ConjunctionExpr *>(e);
+      std::vector<std::unique_ptr<Expression>> cloned_children;
+      for (auto &child : conj->children()) {
+        cloned_children.emplace_back(clone_expr_tree(child.get()));
+      }
+      return std::unique_ptr<Expression>(new ConjunctionExpr(conj->conjunction_type(), cloned_children));
+    }
+    case ExprType::COMPARISON: {
+      auto *cmp = static_cast<ComparisonExpr *>(e);
+      auto left = clone_expr_tree(cmp->left().get());
+      auto right = clone_expr_tree(cmp->right().get());
+      return std::unique_ptr<Expression>(new ComparisonExpr(cmp->comp(), std::move(left), std::move(right)));
+    }
     default:
       return nullptr;
   }
@@ -167,6 +181,20 @@ RC LogicalPlanGenerator::create_plan(
   if (filter_stmt != nullptr) {
     for (const FilterUnit *unit : filter_stmt->filter_units()) {
       // 基于表达式的 filter: 尝试分类以支持 join interleaving
+      if (unit->has_custom_expr()) {
+        std::set<std::string> ref_tables;
+        collect_table_refs(unit->custom_expr(), ref_tables);
+        if (ref_tables.empty()) {
+          expr_filters.push_back(unit);
+        } else if (ref_tables.size() == 1) {
+          std::string tn = *ref_tables.begin();
+          table_filters[tn].push_back(unit);
+        } else {
+          join_filters.push_back(unit);
+          join_filter_tables.push_back(ref_tables);
+        }
+        continue;
+      }
       if (unit->is_expr_based()) {
         std::set<std::string> ref_tables;
         if (unit->left_expr())  collect_table_refs(unit->left_expr(), ref_tables);
@@ -239,7 +267,9 @@ RC LogicalPlanGenerator::create_plan(
     if (it != table_filters.end() && !it->second.empty()) {
       std::vector<unique_ptr<Expression>> cmp_exprs;
       for (const FilterUnit *unit : it->second) {
-        if (unit->is_expr_based()) {
+        if (unit->has_custom_expr()) {
+          cmp_exprs.emplace_back(clone_expr_tree(unit->custom_expr()));
+        } else if (unit->is_expr_based()) {
           auto left  = clone_expr_tree(unit->left_expr());
           auto right = clone_expr_tree(unit->right_expr());
           cmp_exprs.emplace_back(new ComparisonExpr(unit->comp(), std::move(left), std::move(right)));
@@ -296,7 +326,9 @@ RC LogicalPlanGenerator::create_plan(
       if (!covered.empty()) {
         std::vector<unique_ptr<Expression>> cmp_exprs;
         for (const FilterUnit *unit : covered) {
-          if (unit->is_expr_based()) {
+          if (unit->has_custom_expr()) {
+            cmp_exprs.emplace_back(clone_expr_tree(unit->custom_expr()));
+          } else if (unit->is_expr_based()) {
             auto left  = clone_expr_tree(unit->left_expr());
             auto right = clone_expr_tree(unit->right_expr());
             cmp_exprs.emplace_back(new ComparisonExpr(unit->comp(), std::move(left), std::move(right)));
@@ -334,10 +366,14 @@ RC LogicalPlanGenerator::create_plan(
     }
     // Expression-based filters (clone the resolved expression trees)
     for (const FilterUnit *unit : expr_filters) {
-      auto left = clone_expr_tree(unit->left_expr());
-      auto right = clone_expr_tree(unit->right_expr());
-      ComparisonExpr *cmp = new ComparisonExpr(unit->comp(), std::move(left), std::move(right));
-      cmp_exprs.emplace_back(cmp);
+      if (unit->has_custom_expr()) {
+        cmp_exprs.emplace_back(clone_expr_tree(unit->custom_expr()));
+      } else {
+        auto left = clone_expr_tree(unit->left_expr());
+        auto right = clone_expr_tree(unit->right_expr());
+        ComparisonExpr *cmp = new ComparisonExpr(unit->comp(), std::move(left), std::move(right));
+        cmp_exprs.emplace_back(cmp);
+      }
     }
     unique_ptr<ConjunctionExpr> conj(new ConjunctionExpr(ConjunctionExpr::Type::AND, cmp_exprs));
     predicate_oper = unique_ptr<PredicateLogicalOperator>(new PredicateLogicalOperator(std::move(conj)));

@@ -40,7 +40,7 @@ RC resolve_expression(std::unique_ptr<Expression> &expr, Table *default_table,
  * @brief 表达式类型
  * @ingroup Expression
  */
-enum class ExprType 
+enum class ExprType
 {
   NONE,
   STAR,         ///< 星号，表示所有字段
@@ -52,6 +52,7 @@ enum class ExprType
   ARITHMETIC,   ///< 算术运算
   UNBOUND_FIELD,///< 未绑定的字段引用，需要在stmt阶段解析
   AGGREGATION,  ///< 聚合函数表达式
+  SUBQUERY,     ///< 子查询表达式
 };
 
 /**
@@ -218,6 +219,36 @@ private:
   AggregationType agg_type_;
   std::string table_name_;
   std::string field_name_;
+};
+
+struct SelectSqlNode;
+
+/**
+ * @brief 子查询表达式
+ * @ingroup Expression
+ */
+class SubQueryExpr : public Expression
+{
+public:
+  SubQueryExpr(SelectSqlNode *select_node);
+  virtual ~SubQueryExpr();
+
+  ExprType type() const override { return ExprType::SUBQUERY; }
+  AttrType value_type() const override { return UNDEFINED; }
+
+  RC get_value(const Tuple &tuple, Value &value) const override;
+
+  SelectSqlNode *select_node() { return select_node_.get(); }
+
+  void set_result_values(std::vector<Value> &&values) { result_values_ = std::move(values); }
+  const std::vector<Value> &result_values() const { return result_values_; }
+  bool is_executed() const { return executed_; }
+  void set_executed(bool v) { executed_ = v; }
+
+private:
+  std::unique_ptr<SelectSqlNode> select_node_;
+  std::vector<Value> result_values_;
+  bool executed_ = false;
 };
 
 /**
