@@ -71,6 +71,12 @@ static void collect_table_refs(Expression *expr, std::set<std::string> &tables)
       auto *agg = static_cast<AggregationExpr *>(expr);
       if (!agg->table_name().empty()) tables.insert(agg->table_name());
     } break;
+    case ExprType::FUNCTION: {
+      auto *fe = static_cast<FunctionExpr *>(expr);
+      for (auto &arg : fe->args()) {
+        collect_table_refs(arg.get(), tables);
+      }
+    } break;
     default:
       break;
   }
@@ -115,6 +121,14 @@ static std::unique_ptr<Expression> clone_expr_tree(Expression *e)
       auto left = clone_expr_tree(cmp->left().get());
       auto right = clone_expr_tree(cmp->right().get());
       return std::unique_ptr<Expression>(new ComparisonExpr(cmp->comp(), std::move(left), std::move(right)));
+    }
+    case ExprType::FUNCTION: {
+      auto *fn = static_cast<FunctionExpr *>(e);
+      std::vector<std::unique_ptr<Expression>> cloned_args;
+      for (auto &arg : fn->args()) {
+        cloned_args.emplace_back(clone_expr_tree(arg.get()));
+      }
+      return std::unique_ptr<Expression>(new FunctionExpr(fn->func_name(), std::move(cloned_args)));
     }
     default:
       return nullptr;

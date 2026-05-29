@@ -66,6 +66,14 @@ static void collect_aggregations(Expression *&expr, Table *default_table,
     collect_aggregations(child, default_table, table_map, agg_fields, has_agg);
     return;
   }
+  if (expr->type() == ExprType::FUNCTION) {
+    auto *fn = static_cast<FunctionExpr *>(expr);
+    for (auto &arg : fn->args()) {
+      Expression *a = arg.get();
+      collect_aggregations(a, default_table, table_map, agg_fields, has_agg);
+    }
+    return;
+  }
 }
 
 SelectStmt::~SelectStmt()

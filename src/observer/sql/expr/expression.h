@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include <string.h>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "storage/field/field.h"
 #include "sql/parser/value.h"
@@ -53,6 +54,7 @@ enum class ExprType
   UNBOUND_FIELD,///< 未绑定的字段引用，需要在stmt阶段解析
   AGGREGATION,  ///< 聚合函数表达式
   SUBQUERY,     ///< 子查询表达式
+  FUNCTION,     ///< 函数表达式 (length, round, date_format等)
 };
 
 /**
@@ -392,4 +394,28 @@ private:
   Type arithmetic_type_;
   std::unique_ptr<Expression> left_;
   std::unique_ptr<Expression> right_;
+};
+
+/**
+ * @brief 函数表达式 (length, round, date_format等)
+ * @ingroup Expression
+ */
+class FunctionExpr : public Expression
+{
+public:
+  FunctionExpr(const std::string &func_name, std::vector<std::unique_ptr<Expression>> &&args)
+    : func_name_(func_name), args_(std::move(args))
+  {}
+  virtual ~FunctionExpr() = default;
+
+  ExprType type() const override { return ExprType::FUNCTION; }
+  AttrType value_type() const override;
+  RC get_value(const Tuple &tuple, Value &value) const override;
+
+  const std::string &func_name() const { return func_name_; }
+  std::vector<std::unique_ptr<Expression>> &args() { return args_; }
+
+private:
+  std::string func_name_;
+  std::vector<std::unique_ptr<Expression>> args_;
 };

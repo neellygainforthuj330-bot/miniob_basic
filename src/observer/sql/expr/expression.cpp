@@ -16,6 +16,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/tuple.h"
 #include "sql/parser/parse_defs.h"
 #include "storage/table/table.h"
+#include <algorithm>
+#include <cstdio>
 #include <unordered_map>
 
 using namespace std;
@@ -112,6 +114,14 @@ RC resolve_expression(unique_ptr<Expression> &expr,
       auto *resolved = new FieldExpr(table, fm);
       resolved->set_name(expr->name());
       expr.reset(resolved);
+      return RC::SUCCESS;
+    }
+    case ExprType::FUNCTION: {
+      auto *fn = static_cast<FunctionExpr *>(expr.get());
+      for (auto &arg : fn->args()) {
+        RC rc = resolve_expression(arg, default_table, table_map);
+        if (rc != RC::SUCCESS) return rc;
+      }
       return RC::SUCCESS;
     }
     default:
@@ -509,6 +519,80 @@ RC ArithmeticExpr::try_get_value(Value &value) const
   }
 
   return calc_value(left_value, right_value, value);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+AttrType FunctionExpr::value_type() const
+{
+  std::string fn = func_name_;
+  std::transform(fn.begin(), fn.end(), fn.begin(), ::tolower);
+  if (fn == "length") return INTS;
+  if (fn == "round") return INTS;
+  if (fn == "date_format") return CHARS;
+  return UNDEFINED;
+}
+
+RC FunctionExpr::get_value(const Tuple &tuple, Value &value) const
+{
+  std::vector<Value> arg_values;
+  arg_values.reserve(args_.size());
+  for (auto &arg : args_) {
+    Value v;
+    RC rc = arg->get_value(tuple, v);
+    if (rc != RC::SUCCESS) return rc;
+    arg_values.push_back(v);
+  }
+
+  std::string fn = func_name_;
+  std::transform(fn.begin(), fn.end(), fn.begin(), ::tolower);
+
+  if (fn == "length") {
+    if (arg_values.size() != 1) return RC::INVALID_ARGUMENT;
+    if (arg_values[0].attr_type() != CHARS) return RC::INVALID_ARGUMENT;
+    value.set_int((int)arg_values[0].get_string().length());
+    return RC::SUCCESS;
+  } else if (fn == "round") {
+    if (arg_values.size() != 1) return RC::INVALID_ARGUMENT;
+    if (arg_values[0].attr_type() != FLOATS) return RC::INVALID_ARGUMENT;
+    float f = arg_values[0].get_float();
+    value.set_int((int)(f > 0 ? f + 0.5f : f - 0.5f));
+    return RC::SUCCESS;
+  } else if (fn == "date_format") {
+    if (arg_values.size() < 1 || arg_values.size() > 2) return RC::INVALID_ARGUMENT;
+    if (arg_values[0].attr_type() != DATES) return RC::INVALID_ARGUMENT;
+
+    int date_val = arg_values[0].get_date();
+    int y = date_val / 10000;
+    int m = (date_val % 10000) / 100;
+    int d = date_val % 100;
+
+    std::string fmt = "%Y-%m-%d";
+    if (arg_values.size() == 2) {
+      if (arg_values[1].attr_type() != CHARS) return RC::INVALID_ARGUMENT;
+      fmt = arg_values[1].get_string();
+    }
+
+    // Replace format specifiers
+    size_t pos;
+    char buf[16];
+    while ((pos = fmt.find("%Y")) != std::string::npos) {
+      snprintf(buf, sizeof(buf), "%04d", y);
+      fmt.replace(pos, 2, buf);
+    }
+    while ((pos = fmt.find("%m")) != std::string::npos) {
+      snprintf(buf, sizeof(buf), "%02d", m);
+      fmt.replace(pos, 2, buf);
+    }
+    while ((pos = fmt.find("%d")) != std::string::npos) {
+      snprintf(buf, sizeof(buf), "%02d", d);
+      fmt.replace(pos, 2, buf);
+    }
+    value.set_string(fmt.c_str());
+    return RC::SUCCESS;
+  }
+
+  return RC::UNIMPLENMENT;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

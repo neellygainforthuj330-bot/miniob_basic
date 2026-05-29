@@ -683,6 +683,19 @@ expression:
       $$->set_name(token_name(sql_string, &@$));
       delete $2;
     }
+    | ID LBRACE expression_list RBRACE {
+      std::vector<std::unique_ptr<Expression>> args;
+      if ($3 != nullptr) {
+        std::reverse($3->begin(), $3->end());
+        for (auto *e : *$3) {
+          args.emplace_back(e);
+        }
+        delete $3;
+      }
+      $$ = new FunctionExpr($1, std::move(args));
+      $$->set_name(token_name(sql_string, &@$));
+      free($1);
+    }
     | value {
       $$ = new ValueExpr(*$1);
       $$->set_name(token_name(sql_string, &@$));
