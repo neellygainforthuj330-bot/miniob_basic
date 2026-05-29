@@ -214,6 +214,27 @@ RC Table::open(const char *meta_file, const char *base_dir)
 RC Table::insert_record(Record &record)
 {
   RC rc = RC::SUCCESS;
+
+  // 检查唯一索引约束
+  for (Index *index : indexes_) {
+    if (index->index_meta().is_unique()) {
+      const FieldMeta *fm = table_meta_.field(index->index_meta().field());
+      if (fm != nullptr) {
+        const char *key_data = record.data() + fm->offset();
+        int key_len = fm->len();
+        IndexScanner *scanner = index->create_scanner(key_data, key_len, true, key_data, key_len, true);
+        if (scanner != nullptr) {
+          RID rid;
+          bool found = (scanner->next_entry(&rid) == RC::SUCCESS);
+          scanner->destroy();
+          if (found) {
+            return RC::RECORD_DUPLICATE_KEY;
+          }
+        }
+      }
+    }
+  }
+
   rc = record_handler_->insert_record(record.data(), table_meta_.record_size(), &record.rid());
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Insert record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
@@ -370,7 +391,7 @@ RC Table::get_record_scanner(RecordFileScanner &scanner, Trx *trx, bool readonly
   return rc;
 }
 
-RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name)
+RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name, bool is_unique)
 {
   if (common::is_blank(index_name) || nullptr == field_meta) {
     LOG_INFO("Invalid input arguments, table name is %s, index_name is blank or attribute_name is blank", name());
@@ -378,9 +399,9 @@ RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_
   }
 
   IndexMeta new_index_meta;
-  RC rc = new_index_meta.init(index_name, *field_meta);
+  RC rc = new_index_meta.init(index_name, *field_meta, is_unique);
   if (rc != RC::SUCCESS) {
-    LOG_INFO("Failed to init IndexMeta in table:%s, index_name:%s, field_name:%s", 
+    LOG_INFO("Failed to init IndexMeta in table:%s, index_name:%s, field_name:%s",
              name(), index_name, field_meta->name());
     return rc;
   }
@@ -412,11 +433,26 @@ RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_
                name(), index_name, strrc(rc));
       return rc;
     }
+    // 对于唯一索引，检查是否已存在相同键值
+    if (is_unique) {
+      const char *key_data = record.data() + field_meta->offset();
+      int key_len = field_meta->len();
+      IndexScanner *key_scanner = index->create_scanner(key_data, key_len, true, key_data, key_len, true);
+      if (key_scanner != nullptr) {
+        RID rid;
+        bool found = (key_scanner->next_entry(&rid) == RC::SUCCESS);
+        key_scanner->destroy();
+        if (found) {
+          delete index;
+          return RC::RECORD_DUPLICATE_KEY;
+        }
+      }
+    }
     rc = index->insert_entry(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
       LOG_WARN("failed to insert record into index while creating index. table=%s, index=%s, rc=%s",
                name(), index_name, strrc(rc));
-      return rc;         
+      return rc;
     }
   }
   scanner.close_scan();
