@@ -25,7 +25,7 @@
 | 1.15 | alias | — 无测试文件 | N/A |
 | 1.16 | text | primary-text | ⬜ |
 | 1.17 | order-by | primary-order-by | ✅ 已完成 |
-| 1.18 | group-by | primary-group-by | 🔄 实现中 |
+| 1.18 | group-by | primary-group-by | ✅ 已完成 |
 | 1.19 | create view | — 无测试文件 | N/A |
 | 1.20 | create-table-select | — 无测试文件 | N/A |
 | 1.21 | complex-sub-query | primary-complex-sub-query | ⬜ |
