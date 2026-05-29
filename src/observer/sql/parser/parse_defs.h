@@ -99,19 +99,7 @@ struct ConditionSqlNode
     other.left_expr = nullptr;
     other.right_expr = nullptr;
   }
-  ConditionSqlNode &operator=(ConditionSqlNode &&other) noexcept
-  {
-    if (this != &other) {
-      delete left_expr; delete right_expr;
-      left_is_attr = other.left_is_attr; left_value = std::move(other.left_value);
-      left_attr = std::move(other.left_attr); comp = other.comp;
-      right_is_attr = other.right_is_attr; right_attr = std::move(other.right_attr);
-      right_value = std::move(other.right_value);
-      left_expr = other.left_expr; right_expr = other.right_expr;
-      other.left_expr = nullptr; other.right_expr = nullptr;
-    }
-    return *this;
-  }
+  ConditionSqlNode &operator=(ConditionSqlNode &&other) noexcept;
   ConditionSqlNode(const ConditionSqlNode &) = delete;
   ConditionSqlNode &operator=(const ConditionSqlNode &) = delete;
 
