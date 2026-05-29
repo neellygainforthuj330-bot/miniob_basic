@@ -32,8 +32,8 @@
 |------|------|------|
 | order-by | 10 | ✅ 已完成 |
 | like | 10 | ✅ 已完成 |
-| join-tables | 20 | 🔄 待验证 (bug fixes: cell_at off-by-one, clone CAST, alias logic) |
-| expression | 20 | 🔄 待验证 (fix: CAST in resolve_expression + collect_table_refs) |
+| join-tables | 20 | ⏳ (平台: cross-type comparison CHAR vs FLOAT 结果错误) |
+| expression | 20 | ⏳ (平台: division by zero in WHERE 导致多余行输出) |
 | insert | 10 | ⬜ 未实现 |
 | unique | 10 | ⬜ 未实现 |
 | null | 10 | ⬜ 未实现 |

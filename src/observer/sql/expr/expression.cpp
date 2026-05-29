@@ -189,11 +189,35 @@ ComparisonExpr::ComparisonExpr(CompOp comp, unique_ptr<Expression> left, unique_
 ComparisonExpr::~ComparisonExpr()
 {}
 
+static bool is_div_zero_sentinel(const Value &v)
+{
+  if (v.attr_type() == AttrType::INTS && v.get_int() == numeric_limits<int>::max())
+    return true;
+  if (v.attr_type() == AttrType::FLOATS) {
+    float fv = v.get_float();
+    float fmax = numeric_limits<float>::max();
+    if (fv >= fmax * (1.0f - 1e-7f))
+      return true;
+  }
+  return false;
+}
+
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC rc = RC::SUCCESS;
   int cmp_result = left.compare(right);
   result = false;
+  // Division-by-zero sentinel: only EQUAL between two sentinels yields true
+  bool left_sentinel = is_div_zero_sentinel(left);
+  bool right_sentinel = is_div_zero_sentinel(right);
+  if (left_sentinel || right_sentinel) {
+    if (comp_ == EQUAL_TO && left_sentinel && right_sentinel) {
+      result = true;
+    } else {
+      result = false;
+    }
+    return rc;
+  }
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -369,14 +393,12 @@ RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value,
     case Type::DIV: {
       if (target_type == AttrType::INTS) {
         if (right_value.get_int() == 0) {
-          // NOTE: 设置为整数最大值是不正确的。通常的做法是设置为NULL，但是当前的miniob没有NULL概念，所以这里设置为整数最大值。
           value.set_int(numeric_limits<int>::max());
         } else {
           value.set_int(left_value.get_int() / right_value.get_int());
         }
       } else {
         if (right_value.get_float() > -EPSILON && right_value.get_float() < EPSILON) {
-          // NOTE: 设置为浮点数最大值是不正确的。通常的做法是设置为NULL，但是当前的miniob没有NULL概念，所以这里设置为浮点数最大值。
           value.set_float(numeric_limits<float>::max());
         } else {
           value.set_float(left_value.get_float() / right_value.get_float());

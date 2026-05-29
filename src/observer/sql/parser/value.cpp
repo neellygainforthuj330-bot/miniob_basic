@@ -246,6 +246,36 @@ int Value::compare(const Value &other) const
   } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
     float other_data = other.num_value_.int_value_;
     return common::compare_float((void *)&this->num_value_.float_value_, (void *)&other_data);
+  } else if (this->attr_type_ == CHARS && other.attr_type_ == FLOATS) {
+    try {
+      float this_data = (float)std::stod(this->str_value_);
+      return common::compare_float((void *)&this_data, (void *)&other.num_value_.float_value_);
+    } catch (...) {
+      return -1;
+    }
+  } else if (this->attr_type_ == FLOATS && other.attr_type_ == CHARS) {
+    try {
+      float other_data = (float)std::stod(other.str_value_);
+      return common::compare_float((void *)&this->num_value_.float_value_, (void *)&other_data);
+    } catch (...) {
+      return -1;
+    }
+  } else if (this->attr_type_ == CHARS && other.attr_type_ == INTS) {
+    try {
+      float this_data = (float)std::stod(this->str_value_);
+      float other_data = (float)other.num_value_.int_value_;
+      return common::compare_float((void *)&this_data, (void *)&other_data);
+    } catch (...) {
+      return -1;
+    }
+  } else if (this->attr_type_ == INTS && other.attr_type_ == CHARS) {
+    try {
+      float this_data = (float)this->num_value_.int_value_;
+      float other_data = (float)std::stod(other.str_value_);
+      return common::compare_float((void *)&this_data, (void *)&other_data);
+    } catch (...) {
+      return -1;
+    }
   }
   LOG_WARN("not supported");
   return -1;  // TODO return rc?
