@@ -18,12 +18,12 @@
 | 1.8 | simple-sub-query | primary-simple-sub-query | 🔄 待验证 |
 | 1.9 | function | — (无测试文件) | ⬜ |
 | 1.10 | multi-index | primary-multi-index | ❌ 失败 |
-| 1.11 | unique | primary-unique | ⬜ |
-| 1.12 | null | primary-null | ⬜ |
+| 1.11 | unique | primary-unique | 🔄 待验证 |
+| 1.12 | null | primary-null | ⏭️ SKIP (核心数据层改动过大) |
 | 1.13 | update-select | — (无测试文件) | ⬜ |
 | 1.14 | expression | primary-expression | ⏭️ SKIP (聚合表达式需 parser 再生成了) |
 | 1.15 | alias | — (无测试文件) | ⬜ |
-| 1.16 | text | primary-text | ⬜ |
+| 1.16 | text | primary-text | ⏭️ SKIP (变长存储改动过大) |
 | 1.17 | order-by | primary-order-by | ✅ 已完成 |
 | 1.18 | group-by | primary-group-by | ⬜ |
 | 1.19 | create view | — (无测试文件) | ⬜ |
