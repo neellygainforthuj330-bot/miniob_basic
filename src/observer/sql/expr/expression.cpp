@@ -207,15 +207,9 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   RC rc = RC::SUCCESS;
   int cmp_result = left.compare(right);
   result = false;
-  // Division-by-zero sentinel: only EQUAL between two sentinels yields true
-  bool left_sentinel = is_div_zero_sentinel(left);
-  bool right_sentinel = is_div_zero_sentinel(right);
-  if (left_sentinel || right_sentinel) {
-    if (comp_ == EQUAL_TO && left_sentinel && right_sentinel) {
-      result = true;
-    } else {
-      result = false;
-    }
+  // Division-by-zero sentinel: always false (NULL semantics)
+  if (is_div_zero_sentinel(left) || is_div_zero_sentinel(right)) {
+    result = false;
     return rc;
   }
   switch (comp_) {

@@ -156,8 +156,14 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     rc = resolve_side(right_e, default_table, tables, right_obj, right_simple);
     if (rc != RC::SUCCESS) { delete left_e; return rc; }
 
-    if (left_simple && right_simple) {
-      // 两边都是简单类型: 使用 legacy 路径
+    if (left_simple && right_simple && !left_obj.is_attr && !right_obj.is_attr) {
+      // 两边都是常量: 使用表达式路径以保留常量比较语义（避免被 legacy 路径当作 tautology 丢弃）
+      filter_unit = new FilterUnit();
+      filter_unit->set_comp(comp);
+      filter_unit->set_left_expr(new ValueExpr(left_obj.value));
+      filter_unit->set_right_expr(new ValueExpr(right_obj.value));
+    } else if (left_simple && right_simple) {
+      // 两边都是简单类型且至少一边是字段: 使用 legacy 路径
       filter_unit = new FilterUnit();
       filter_unit->set_comp(comp);
       filter_unit->set_left(left_obj);
