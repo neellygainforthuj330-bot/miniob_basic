@@ -175,6 +175,34 @@ RC UpdateExecutor::execute(SQLStageEvent *sql_event)
           case LESS_EQUAL: cond = (cmp <= 0); break;
           case GREAT_EQUAL: cond = (cmp >= 0); break;
           case NOT_EQUAL: cond = (cmp != 0); break;
+          case IS_NULL: {
+            if (filter_unit->left().is_attr) {
+              const FieldMeta *fm = filter_unit->left().field.meta();
+              const char *fdata = record.data() + fm->offset();
+              bool is_null = true;
+              for (int b = 0; b < fm->len(); b++) {
+                if (fdata[b] != 0) { is_null = false; break; }
+              }
+              cond = is_null;
+            } else {
+              cond = false;
+            }
+            break;
+          }
+          case IS_NOT_NULL: {
+            if (filter_unit->left().is_attr) {
+              const FieldMeta *fm = filter_unit->left().field.meta();
+              const char *fdata = record.data() + fm->offset();
+              bool is_null = true;
+              for (int b = 0; b < fm->len(); b++) {
+                if (fdata[b] != 0) { is_null = false; break; }
+              }
+              cond = !is_null;
+            } else {
+              cond = true;
+            }
+            break;
+          }
           default: cond = false; break;
         }
         if (!cond) { match = false; break; }

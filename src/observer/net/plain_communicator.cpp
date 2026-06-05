@@ -37,7 +37,7 @@ RC PlainCommunicator::read_event(SessionEvent *&event)
   int data_len = 0;
   int read_len = 0;
 
-  const int max_packet_size = 8192;
+  const int max_packet_size = 32768;
   std::vector<char> buf(max_packet_size);
 
   // 持续接收消息，直到遇到'\0'。将'\0'遇到的后续数据直接丢弃没有处理，因为目前仅支持一收一发的模式
@@ -53,7 +53,7 @@ RC PlainCommunicator::read_event(SessionEvent *&event)
       break;
     }
 
-    if (read_len + data_len > max_packet_size) {
+    if (read_len + data_len >= max_packet_size) {
       data_len += read_len;
       break;
     }
@@ -74,12 +74,12 @@ RC PlainCommunicator::read_event(SessionEvent *&event)
     data_len += read_len;
   }
 
-  if (data_len > max_packet_size) {
+  if (data_len >= max_packet_size) {
     LOG_WARN("The length of sql exceeds the limitation %d", max_packet_size);
     return RC::IOERR_TOO_LONG;
   }
   if (read_len == 0) {
-    LOG_INFO("The peer has been closed %s", addr());
+    LOG_INFO("The peer has closed %s", addr());
     return RC::IOERR_CLOSE;
   } else if (read_len < 0) {
     LOG_ERROR("Failed to read socket of %s, %s", addr(), strerror(errno));
@@ -88,7 +88,7 @@ RC PlainCommunicator::read_event(SessionEvent *&event)
 
   LOG_INFO("receive command(size=%d): %s", data_len, buf.data());
   event = new SessionEvent(this);
-  event->set_query(std::string(buf.data()));
+  event->set_query(std::string(buf.data(), data_len));
   return rc;
 }
 

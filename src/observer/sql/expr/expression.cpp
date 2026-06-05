@@ -523,8 +523,7 @@ AttrType ArithmeticExpr::value_type() const
   }
 
   if (left_->value_type() == AttrType::INTS &&
-      right_->value_type() == AttrType::INTS &&
-      arithmetic_type_ != Type::DIV) {
+      right_->value_type() == AttrType::INTS) {
     return AttrType::INTS;
   }
   
